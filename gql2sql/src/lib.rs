@@ -35,18 +35,34 @@ fn get_op(op: &str) -> BinaryOperator {
 }
 
 fn get_expr<'a, T: Text<'a>>(left: Expr, args: &GqlValue<'a, T>) -> Option<Expr> {
-    match args {
-        GqlValue::Object(o) => match o.len() {
+    if let GqlValue::Object(o) = args {
+        return match o.len() {
             0 => None,
             1 => {
                 let (op, value) = o.iter().next().unwrap();
                 let right_value = get_value(value);
-                let op = get_op(op.as_ref());
-                Some(Expr::BinaryOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(Expr::Value(right_value)),
-                })
+                match op.as_ref() {
+                    "like" => Some(Expr::Like {
+                        negated: false,
+                        expr: Box::new(left),
+                        pattern: Box::new(Expr::Value(right_value)),
+                        escape_char: None,
+                    }),
+                    "ilike" => Some(Expr::ILike {
+                        negated: false,
+                        expr: Box::new(left),
+                        pattern: Box::new(Expr::Value(right_value)),
+                        escape_char: None,
+                    }),
+                    _ => {
+                        let op = get_op(op.as_ref());
+                        Some(Expr::BinaryOp {
+                            left: Box::new(left),
+                            op,
+                            right: Box::new(Expr::Value(right_value)),
+                        })
+                    }
+                }
             }
             _ => {
                 let mut conditions: Vec<Expr> = o
@@ -73,12 +89,9 @@ fn get_expr<'a, T: Text<'a>>(left: Expr, args: &GqlValue<'a, T>) -> Option<Expr>
                 }
                 Some(last_expr)
             }
-        },
-        _ => {
-            let value = get_value(args);
-            Some(Expr::Value(value))
-        }
-    }
+        };
+    };
+    None
 }
 
 fn get_filter<'a, T: Text<'a>>(args: &BTreeMap<T::Value, GqlValue<'a, T>>) -> Option<Expr> {
@@ -96,6 +109,43 @@ fn get_filter<'a, T: Text<'a>>(args: &BTreeMap<T::Value, GqlValue<'a, T>>) -> Op
         }
         _ => unimplemented!(),
     }
+}
+
+fn get_agg_query<'a, T: Text<'a>>(
+    aggs: Vec<FunctionArg>,
+    from: Vec<TableWithJoins>,
+    selection: Option<Expr>,
+) -> SetExpr {
+    SetExpr::Select(Box::new(Select {
+        distinct: false,
+        top: None,
+        into: None,
+        projection: vec![SelectItem::ExprWithAlias {
+            alias: Ident {
+                value: "root".into(),
+                quote_style: Some('"'),
+            },
+            expr: Expr::Function(Function {
+                name: ObjectName(vec![Ident {
+                    value: "json_build_object".to_string(),
+                    quote_style: None,
+                }]),
+                args: aggs,
+                over: None,
+                distinct: false,
+                special: false,
+            }),
+        }],
+        from,
+        lateral_views: Vec::new(),
+        selection,
+        group_by: Vec::new(),
+        cluster_by: Vec::new(),
+        distribute_by: Vec::new(),
+        sort_by: Vec::new(),
+        having: None,
+        qualify: None,
+    }))
 }
 
 fn get_root_query<'a, T: Text<'a>>(
@@ -225,6 +275,105 @@ fn get_root_query<'a, T: Text<'a>>(
         having: None,
         qualify: None,
     }))
+}
+
+fn get_agg_filter_projection<'a, T: Text<'a>>(field: &Field<'a, T>) -> SelectItem {
+    match field.name.as_ref() {
+        "count" => SelectItem::UnnamedExpr(Expr::Value(Value::Number("1".to_string(), false))),
+        _ => SelectItem::Wildcard(WildcardAdditionalOptions::default()),
+    }
+}
+
+fn get_agg_agg_projection<'a, T: Text<'a>>(field: &Field<'a, T>) -> Vec<FunctionArg> {
+    let name = field.name.as_ref();
+    match name {
+        "count" => {
+            vec![
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                    Value::SingleQuotedString(field.name.as_ref().into()),
+                ))),
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                    name: ObjectName(vec![Ident {
+                        value: name.to_uppercase().to_string(),
+                        quote_style: None,
+                    }]),
+                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Wildcard)],
+                    over: None,
+                    distinct: false,
+                    special: false,
+                }))),
+            ]
+        }
+        "min" | "max" | "avg" => {
+            let projection = field
+                .selection_set
+                .items
+                .iter()
+                .map(|arg| {
+                    if let Selection::Field(field) = arg {
+                        vec![
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                Value::SingleQuotedString(field.name.as_ref().into()),
+                            ))),
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                                name: ObjectName(vec![Ident {
+                                    value: name.to_uppercase().to_string(),
+                                    quote_style: None,
+                                }]),
+                                args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                    Expr::Identifier(Ident {
+                                        value: field.name.as_ref().into(),
+                                        quote_style: Some('"'),
+                                    }),
+                                ))],
+                                over: None,
+                                distinct: false,
+                                special: false,
+                            }))),
+                        ]
+                    } else {
+                        unreachable!()
+                    }
+                })
+                .flatten()
+                .collect();
+            vec![
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                    Value::SingleQuotedString(field.name.as_ref().into()),
+                ))),
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                    name: ObjectName(vec![Ident {
+                        value: "json_build_object".to_string(),
+                        quote_style: None,
+                    }]),
+                    args: projection,
+                    over: None,
+                    distinct: false,
+                    special: false,
+                }))),
+            ]
+        }
+        _ => vec![],
+    }
+}
+
+fn get_aggregate_projection<'a, T: Text<'a>>(
+    items: &Vec<Selection<'a, T>>,
+    _path: &str,
+) -> Vec<FunctionArg> {
+    let mut projection = Vec::new();
+    let mut aggs = Vec::new();
+    for selection in items {
+        match selection {
+            Selection::Field(field) => {
+                projection.push(get_agg_filter_projection(field));
+                aggs.extend(get_agg_agg_projection(field));
+            }
+            Selection::FragmentSpread(_) => unimplemented!(),
+            Selection::InlineFragment(_) => unimplemented!(),
+        }
+    }
+    aggs
 }
 
 fn get_projection<'a, T: Text<'a>>(
@@ -477,7 +626,7 @@ fn parse_args<'a, T: Text<'a>>(
     for argument in arguments {
         let (key, value) = argument;
         match (key.as_ref(), value) {
-            ("filter", GqlValue::Object(filter)) => {
+            ("filter" | "where", GqlValue::Object(filter)) => {
                 selection = get_filter(filter);
             }
             ("order", GqlValue::Object(order)) => {
@@ -501,7 +650,9 @@ fn parse_args<'a, T: Text<'a>>(
     (selection, order_by, first, after)
 }
 
-pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Vec<Statement>, anyhow::Error> {
+pub fn gql2sql<'a, T: Text<'a>>(
+    ast: Document<'a, T>,
+) -> Result<Vec<(String, Statement)>, anyhow::Error> {
     let mut statements = Vec::new();
     for definition in ast.definitions {
         match definition {
@@ -510,46 +661,95 @@ pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Vec<Statement>, 
                     for selection in query.selection_set.items {
                         match selection {
                             Selection::Field(field) => {
+                                let mut name = field.name.as_ref();
                                 let (selection, order_by, first, after) =
                                     parse_args(&field.arguments);
-                                let base_query = get_filter_query(
-                                    selection,
-                                    order_by,
-                                    first,
-                                    after,
-                                    field.name.as_ref().into(),
-                                );
-                                let (projection, joins) =
-                                    get_projection(&field.selection_set.items, "base");
-                                statements.push(Statement::Query(Box::new(Query {
-                                    with: None,
-                                    body: Box::new(get_root_query::<&str>(
-                                        projection,
-                                        vec![TableWithJoins {
-                                            relation: TableFactor::Derived {
-                                                lateral: false,
-                                                subquery: Box::new(base_query),
-                                                alias: Some(TableAlias {
-                                                    name: Ident {
-                                                        value: "base".to_string(),
-                                                        quote_style: Some('"'),
+                                if name.ends_with("_aggregate") {
+                                    name = &name[..name.len() - 10];
+                                    let aggs = get_aggregate_projection(
+                                        &field.selection_set.items,
+                                        "base",
+                                    );
+                                    let base_query = get_filter_query(
+                                        selection,
+                                        order_by,
+                                        first,
+                                        after,
+                                        name.to_owned(),
+                                    );
+                                    statements.push((
+                                        field.name.as_ref().into(),
+                                        Statement::Query(Box::new(Query {
+                                            with: None,
+                                            body: Box::new(get_agg_query::<&str>(
+                                                aggs,
+                                                vec![TableWithJoins {
+                                                    relation: TableFactor::Derived {
+                                                        lateral: false,
+                                                        subquery: Box::new(base_query),
+                                                        alias: Some(TableAlias {
+                                                            name: Ident {
+                                                                value: "base".to_string(),
+                                                                quote_style: Some('"'),
+                                                            },
+                                                            columns: vec![],
+                                                        }),
                                                     },
-                                                    columns: vec![],
-                                                }),
-                                            },
-                                            joins,
-                                        }],
-                                        None,
-                                        &"root",
-                                    )),
-                                    order_by: vec![],
-                                    limit: None,
-                                    offset: None,
-                                    fetch: None,
-                                    lock: None,
-                                })));
+                                                    joins: vec![],
+                                                }],
+                                                None,
+                                            )),
+                                            order_by: vec![],
+                                            limit: None,
+                                            offset: None,
+                                            fetch: None,
+                                            lock: None,
+                                        })),
+                                    ));
+                                } else {
+                                    let (projection, joins) =
+                                        get_projection(&field.selection_set.items, "base");
+                                    let base_query = get_filter_query(
+                                        selection,
+                                        order_by,
+                                        first,
+                                        after,
+                                        name.to_owned(),
+                                    );
+                                    statements.push((
+                                        field.name.as_ref().into(),
+                                        Statement::Query(Box::new(Query {
+                                            with: None,
+                                            body: Box::new(get_root_query::<&str>(
+                                                projection,
+                                                vec![TableWithJoins {
+                                                    relation: TableFactor::Derived {
+                                                        lateral: false,
+                                                        subquery: Box::new(base_query),
+                                                        alias: Some(TableAlias {
+                                                            name: Ident {
+                                                                value: "base".to_string(),
+                                                                quote_style: Some('"'),
+                                                            },
+                                                            columns: vec![],
+                                                        }),
+                                                    },
+                                                    joins,
+                                                }],
+                                                None,
+                                                &"root",
+                                            )),
+                                            order_by: vec![],
+                                            limit: None,
+                                            offset: None,
+                                            fetch: None,
+                                            lock: None,
+                                        })),
+                                    ));
+                                };
                             }
-                            _ => {}
+                            Selection::FragmentSpread(_) => unimplemented!(),
+                            Selection::InlineFragment(_) => unimplemented!(),
                         }
                     }
                 }
@@ -582,6 +782,12 @@ mod tests {
                             name
                         }
                     }
+                }
+                Component_aggregate(filter: { appId: { eq: "345810043118026832" } }) {
+                  count
+                  min {
+                    createdAt
+                  }
                 }
             }"#,
         )
@@ -637,19 +843,23 @@ mod tests {
                                "order" ASC
                         ) AS "base.Component.Element"
                     ) AS "root.Element" ON ('true')
-                ) AS "root.Component" ON ('true')
+                ) AS "root.Component" ON ('true');
+                SELECT json_build_object('count', COUNT(*), 'min', json_build_object('createdAt', MIN("createdAt"))) AS "root" FROM (SELECT * FROM "Component" WHERE "appId" = '345810043118026832') AS "base"
         "#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql).unwrap();
         let generated = gql2sql(gqlast).unwrap();
-        assert_eq!(generated, sqlast);
+        for (i, (_, statement)) in generated.iter().enumerate() {
+            // assert_eq!(name, "App");
+            assert_eq!(statement, &sqlast[i]);
+        }
         println!(
             "Statements:\n'{}'",
             generated
                 .iter()
-                .map(std::string::ToString::to_string)
+                .map(|v| v.1.to_string())
                 .collect::<Vec<_>>()
-                .join("\n")
+                .join(";\n")
         );
     }
 }

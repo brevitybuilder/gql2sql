@@ -1,8 +1,10 @@
 extern crate dotenv;
 
+use std::collections::BTreeMap;
+use futures::future::join_all;
 use dotenv::dotenv;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder, middleware};
+use actix_web::{web, App, HttpResponse, HttpServer, middleware};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -12,7 +14,8 @@ struct Query {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct QueryResponse {
-    data: sqlx::types::JsonValue,
+    data: BTreeMap<String, sqlx::types::JsonValue>,
+    meta: Option<BTreeMap<String, String>>,
 }
 
 async fn graphql(payload: web::Json<Query>, db_pool: web::Data<Pool<Postgres>>) -> HttpResponse {
@@ -23,16 +26,24 @@ async fn graphql(payload: web::Json<Query>, db_pool: web::Data<Pool<Postgres>>) 
     let statements = gql2sql::gql2sql(gqlast).unwrap();
     println!("Transformed in {}ms", start.elapsed().as_millis());
     let start = std::time::Instant::now();
-    let queries = statements
+    let mut data = BTreeMap::new();
+    let mut meta = BTreeMap::new();
+    let queries = join_all(statements
         .iter()
-        .map(std::string::ToString::to_string)
-        .collect::<Vec<_>>();
-    println!("Stringified in {}ms", start.elapsed().as_millis());
-    let pool = db_pool.get_ref();
-    let start = std::time::Instant::now();
-    let value: (sqlx::types::JsonValue,) = sqlx::query_as(&queries[0]).fetch_one(pool).await.unwrap();
-    println!("fetched in {}ms", start.elapsed().as_millis());
-    HttpResponse::Ok().json(QueryResponse { data: value.0 })
+        .map(|(key, statement)| async {
+            let pool = db_pool.get_ref();
+            let value: (sqlx::types::JsonValue,) = sqlx::query_as(&statement.to_string()).fetch_one(pool).await.unwrap();
+            (key.to_string(), value.0)
+        })).await;
+    for statement in statements {
+        let (key, statement) = statement;
+        meta.insert(key, statement.to_string());
+    }
+    for (key, value) in queries {
+        data.insert(key, value);
+    }
+    println!("executed in {}ms", start.elapsed().as_millis());
+    HttpResponse::Ok().json(QueryResponse { data, meta: Some(meta) })
 }
 
 #[actix_web::main]

@@ -15,4 +15,5 @@ graphql-parser = "0.4.0"
 sqlx = { version = "0.6", features = [ "runtime-actix-rustls", "postgres" ] }
 dotenv = "0.15.0"
 dotenv_codegen = "0.15.0"
+futures = "0.3.25"
 
