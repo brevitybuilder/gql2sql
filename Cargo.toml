@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "gql2sql",
+    "gql2sql_wasm",
+]
