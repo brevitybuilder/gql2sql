@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use gql2sql::gql2sql as gql2sql_rs;
 use graphql_parser::query::parse_query;
 use wasm_bindgen::prelude::*;
@@ -9,20 +11,19 @@ use wasm_bindgen::prelude::*;
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
-pub fn gql2sql(query: &str) -> JsValue {
-    let gqlast = parse_query::<String>(query).unwrap();
+pub fn gql2sql(query: &str) -> String {
+    let gqlast = parse_query::<Cow<_>>(query).unwrap();
     let statements = gql2sql_rs(gqlast).unwrap();
     let queries = statements
         .iter()
         .map(std::string::ToString::to_string)
         .collect::<Vec<_>>();
-
-    serde_wasm_bindgen::to_value(&queries).unwrap()
+    queries.join("; ")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+
 
     #[test]
     fn it_works() {

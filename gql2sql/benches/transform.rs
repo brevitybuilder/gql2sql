@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gql2sql::gql2sql;
 use graphql_parser::query::parse_query;
@@ -17,7 +19,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             ))
         })
     });
-    let gqlast = parse_query::<String>(
+    let gqlast = parse_query::<&str>(
         r#"query App {
                 App(filter: { id: { eq: "345810043118026832" } }) {
                     id

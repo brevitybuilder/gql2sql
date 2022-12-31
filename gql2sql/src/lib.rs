@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
 use graphql_parser::query::{Definition, Document, Field, OperationDefinition, Selection};
-use graphql_parser::schema::{Value as GqlValue, Text};
+use graphql_parser::schema::{Text, Value as GqlValue};
 use sqlparser::ast::{
     BinaryOperator, Expr, Function, FunctionArg, FunctionArgExpr, Ident, Join, JoinConstraint,
-    JoinOperator, ObjectName, OrderByExpr, Query, Select, SelectItem, SetExpr, Statement,
-    TableAlias, TableFactor, TableWithJoins, Value, WildcardAdditionalOptions, Offset, OffsetRows
+    JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select, SelectItem, SetExpr,
+    Statement, TableAlias, TableFactor, TableWithJoins, Value, WildcardAdditionalOptions,
 };
 
 fn get_value<'a, T: Text<'a>>(value: &GqlValue<'a, T>) -> Value {
@@ -25,6 +25,7 @@ fn get_value<'a, T: Text<'a>>(value: &GqlValue<'a, T>) -> Value {
 fn get_op(op: &str) -> BinaryOperator {
     match op {
         "eq" => BinaryOperator::Eq,
+        "neq" => BinaryOperator::NotEq,
         "lt" => BinaryOperator::Lt,
         "lte" => BinaryOperator::LtEq,
         "gt" => BinaryOperator::Gt,
@@ -38,9 +39,9 @@ fn get_expr<'a, T: Text<'a>>(left: Expr, args: &GqlValue<'a, T>) -> Option<Expr>
         GqlValue::Object(o) => match o.len() {
             0 => None,
             1 => {
-                let (op, value) = o.into_iter().next().unwrap();
+                let (op, value) = o.iter().next().unwrap();
                 let right_value = get_value(value);
-                let op = get_op(op.as_ref().into());
+                let op = get_op(op.as_ref());
                 Some(Expr::BinaryOp {
                     left: Box::new(left),
                     op,
@@ -49,10 +50,10 @@ fn get_expr<'a, T: Text<'a>>(left: Expr, args: &GqlValue<'a, T>) -> Option<Expr>
             }
             _ => {
                 let mut conditions: Vec<Expr> = o
-                    .into_iter()
+                    .iter()
                     .rev()
                     .map(|(op, v)| {
-                        let op = get_op(op.as_ref().into());
+                        let op = get_op(op.as_ref());
                         let value = get_value(v);
                         Expr::BinaryOp {
                             left: Box::new(left.clone()),
@@ -84,7 +85,7 @@ fn get_filter<'a, T: Text<'a>>(args: &BTreeMap<T::Value, GqlValue<'a, T>>) -> Op
     match args.len() {
         0 => None,
         1 => {
-            let (key, value) = args.into_iter().next().unwrap();
+            let (key, value) = args.iter().next().unwrap();
             get_expr(
                 Expr::Identifier(Ident {
                     value: key.as_ref().into(),
@@ -238,11 +239,9 @@ fn get_projection<'a, T: Text<'a>>(
                 if !field.selection_set.items.is_empty() {
                     let (selection, order_by, first, after) = parse_args(&field.arguments);
                     let (relation, fk, pk) = get_relation(field);
-                    let sub_path = format!("{}.{}", path.clone(), relation.clone());
-                    let (sub_projection, sub_joins) = get_projection(
-                        &field.selection_set.items,
-                        sub_path.clone(),
-                    );
+                    let sub_path = path.clone() + "." + &relation;
+                    let (sub_projection, sub_joins) =
+                        get_projection(&field.selection_set.items, sub_path.clone());
                     let join_filter = Expr::BinaryOp {
                         left: Box::new(Expr::CompoundIdentifier(vec![
                             Ident {
@@ -309,7 +308,7 @@ fn get_projection<'a, T: Text<'a>>(
                             }),
                             alias: Some(TableAlias {
                                 name: Ident {
-                                    value: format!("root.{}", relation),
+                                    value: "root.".to_owned() + &relation,
                                     quote_style: Some('"'),
                                 },
                                 columns: vec![],
@@ -374,7 +373,7 @@ fn value_to_string<'a, T: Text<'a>>(value: &GqlValue<'a, T>) -> String {
         GqlValue::Boolean(b) => b.to_string(),
         GqlValue::Enum(e) => e.as_ref().into(),
         GqlValue::List(l) => l
-            .into_iter()
+            .iter()
             .map(|v| value_to_string(v))
             .collect::<Vec<String>>()
             .join(","),
@@ -388,10 +387,10 @@ fn get_relation<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, Strin
     let mut fk = relation.clone() + "_id";
     let mut pk = "id".into();
     for directive in field.directives.iter() {
-        let name: &str = directive.name.as_ref().into();
+        let name: &str = directive.name.as_ref();
         if name == "relation" {
             for argument in directive.arguments.iter() {
-                match argument.0.as_ref().into() {
+                match argument.0.as_ref() {
                     "table" => relation = value_to_string(&argument.1),
                     "field" => fk = value_to_string(&argument.1),
                     "references" => pk = value_to_string(&argument.1),
@@ -457,9 +456,9 @@ fn get_order<'a, T: Text<'a>>(order: &BTreeMap<T::Value, GqlValue<'a, T>>) -> Ve
             asc: match value {
                 GqlValue::String(s) => Some(s == "ASC"),
                 GqlValue::Enum(e) => {
-                    let s: &str = e.as_ref().into();
+                    let s: &str = e.as_ref();
                     Some(s == "ASC")
-                },
+                }
                 _ => unimplemented!(),
             },
             nulls_first: None,
@@ -468,14 +467,16 @@ fn get_order<'a, T: Text<'a>>(order: &BTreeMap<T::Value, GqlValue<'a, T>>) -> Ve
     order_by
 }
 
-fn parse_args<'a, T: Text<'a>>(arguments: &Vec<(T::Value, GqlValue<'a, T>)>) -> (Option<Expr>, Vec<OrderByExpr>, Option<Expr>, Option<Offset>) {
+fn parse_args<'a, T: Text<'a>>(
+    arguments: &Vec<(T::Value, GqlValue<'a, T>)>,
+) -> (Option<Expr>, Vec<OrderByExpr>, Option<Expr>, Option<Offset>) {
     let mut selection = None;
     let mut order_by = vec![];
     let mut first = None;
     let mut after = None;
     for argument in arguments {
         let (key, value) = argument;
-        match (key.as_ref().into(), value) {
+        match (key.as_ref(), value) {
             ("filter", GqlValue::Object(filter)) => {
                 selection = get_filter(filter);
             }
@@ -483,10 +484,16 @@ fn parse_args<'a, T: Text<'a>>(arguments: &Vec<(T::Value, GqlValue<'a, T>)>) -> 
                 order_by = get_order(order);
             }
             ("first", GqlValue::Int(count)) => {
-                first = Some(Expr::Value(Value::Number(count.as_i64().unwrap().to_string(), false)));
+                first = Some(Expr::Value(Value::Number(
+                    count.as_i64().unwrap().to_string(),
+                    false,
+                )));
             }
             ("after", GqlValue::Int(count)) => {
-                after = Some(Offset { value: Expr::Value(Value::Number(count.as_i64().unwrap().to_string(), false)), rows: OffsetRows::None });
+                after = Some(Offset {
+                    value: Expr::Value(Value::Number(count.as_i64().unwrap().to_string(), false)),
+                    rows: OffsetRows::None,
+                });
             }
             _ => {}
         }
@@ -503,13 +510,17 @@ pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Vec<Statement>, 
                     for selection in query.selection_set.items {
                         match selection {
                             Selection::Field(field) => {
-                                let (selection, order_by, first, after) = parse_args(&field.arguments);
-                                let base_query =
-                                    get_filter_query(selection, order_by, first, after, field.name.as_ref().into());
-                                let (projection, joins) = get_projection(
-                                    &field.selection_set.items,
-                                    "base".to_string(),
+                                let (selection, order_by, first, after) =
+                                    parse_args(&field.arguments);
+                                let base_query = get_filter_query(
+                                    selection,
+                                    order_by,
+                                    first,
+                                    after,
+                                    field.name.as_ref().into(),
                                 );
+                                let (projection, joins) =
+                                    get_projection(&field.selection_set.items, "base".to_string());
                                 statements.push(Statement::Query(Box::new(Query {
                                     with: None,
                                     body: Box::new(get_root_query::<T>(
@@ -552,8 +563,6 @@ pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Vec<Statement>, 
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-
     use super::*;
     use graphql_parser::query::parse_query;
     use pretty_assertions::assert_eq;
