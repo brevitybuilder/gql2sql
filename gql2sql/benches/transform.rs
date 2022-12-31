@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gql2sql::gql2sql;
@@ -17,7 +17,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 }
             }"#,
             ))
-        })
+        });
     });
     let gqlast = parse_query::<&str>(
         r#"query App {
@@ -31,7 +31,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     )
     .unwrap();
     c.bench_function("transform", |b| {
-        b.iter(|| gql2sql(black_box(gqlast.clone())))
+        b.iter(|| gql2sql(black_box(gqlast.clone())));
     });
 }
 

@@ -1,0 +1,18 @@
+[package]
+name = "gql2sql_server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+gql2sql = { path = "../gql2sql" }
+actix-web = "4.2.1"
+json = "0.12.4"
+serde = { version = "1.0.152", features = ["derive"] }
+serde_json = "1.0.91"
+graphql-parser = "0.4.0"
+sqlx = { version = "0.6", features = [ "runtime-actix-rustls", "postgres" ] }
+dotenv = "0.15.0"
+dotenv_codegen = "0.15.0"
+

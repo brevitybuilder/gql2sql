@@ -12,7 +12,7 @@ fn get_value<'a, T: Text<'a>>(value: &GqlValue<'a, T>) -> Value {
     match value {
         GqlValue::Variable(v) => Value::Placeholder(v.as_ref().into()),
         GqlValue::Null => Value::Null,
-        GqlValue::String(s) => Value::SingleQuotedString(s.to_owned()),
+        GqlValue::String(s) => Value::SingleQuotedString(s.clone()),
         GqlValue::Int(i) => Value::Number(i.as_i64().unwrap().to_string(), false),
         GqlValue::Float(f) => Value::Number(f.to_string(), false),
         GqlValue::Boolean(b) => Value::Boolean(b.to_owned()),
@@ -102,7 +102,7 @@ fn get_root_query<'a, T: Text<'a>>(
     projection: Vec<SelectItem>,
     from: Vec<TableWithJoins>,
     selection: Option<Expr>,
-    alias: T::Value,
+    alias: &T::Value,
 ) -> SetExpr {
     SetExpr::Select(Box::new(Select {
         distinct: false,
@@ -229,7 +229,7 @@ fn get_root_query<'a, T: Text<'a>>(
 
 fn get_projection<'a, T: Text<'a>>(
     items: &Vec<Selection<'a, T>>,
-    path: String,
+    path: &str,
 ) -> (Vec<SelectItem>, Vec<Join>) {
     let mut projection = Vec::new();
     let mut joins = Vec::new();
@@ -239,9 +239,9 @@ fn get_projection<'a, T: Text<'a>>(
                 if !field.selection_set.items.is_empty() {
                     let (selection, order_by, first, after) = parse_args(&field.arguments);
                     let (relation, fk, pk) = get_relation(field);
-                    let sub_path = path.clone() + "." + &relation;
+                    let sub_path = path.to_string() + "." + &relation;
                     let (sub_projection, sub_joins) =
-                        get_projection(&field.selection_set.items, sub_path.clone());
+                        get_projection(&field.selection_set.items, &sub_path);
                     let join_filter = Expr::BinaryOp {
                         left: Box::new(Expr::CompoundIdentifier(vec![
                             Ident {
@@ -256,7 +256,7 @@ fn get_projection<'a, T: Text<'a>>(
                         op: BinaryOperator::Eq,
                         right: Box::new(Expr::CompoundIdentifier(vec![
                             Ident {
-                                value: path.clone(),
+                                value: path.to_string(),
                                 quote_style: Some('"'),
                             },
                             Ident {
@@ -298,7 +298,7 @@ fn get_projection<'a, T: Text<'a>>(
                                         joins: sub_joins,
                                     }],
                                     None,
-                                    field.name.clone(),
+                                    &field.name,
                                 )),
                                 order_by: vec![],
                                 limit: None,
@@ -328,7 +328,7 @@ fn get_projection<'a, T: Text<'a>>(
                             projection.push(SelectItem::ExprWithAlias {
                                 expr: Expr::CompoundIdentifier(vec![
                                     Ident {
-                                        value: path.clone(),
+                                        value: path.to_string(),
                                         quote_style: Some('"'),
                                     },
                                     Ident {
@@ -346,7 +346,7 @@ fn get_projection<'a, T: Text<'a>>(
                             projection.push(SelectItem::UnnamedExpr(Expr::CompoundIdentifier(
                                 vec![
                                     Ident {
-                                        value: path.clone(),
+                                        value: path.to_string(),
                                         quote_style: Some('"'),
                                     },
                                     Ident {
@@ -367,7 +367,7 @@ fn get_projection<'a, T: Text<'a>>(
 
 fn value_to_string<'a, T: Text<'a>>(value: &GqlValue<'a, T>) -> String {
     match value {
-        GqlValue::String(s) => s.to_owned(),
+        GqlValue::String(s) => s.clone(),
         GqlValue::Int(i) => i.as_i64().unwrap().to_string(),
         GqlValue::Float(f) => f.to_string(),
         GqlValue::Boolean(b) => b.to_string(),
@@ -386,10 +386,10 @@ fn get_relation<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, Strin
     let mut relation: String = field.name.as_ref().into();
     let mut fk = relation.clone() + "_id";
     let mut pk = "id".into();
-    for directive in field.directives.iter() {
+    for directive in &field.directives {
         let name: &str = directive.name.as_ref();
         if name == "relation" {
-            for argument in directive.arguments.iter() {
+            for argument in &directive.arguments {
                 match argument.0.as_ref() {
                     "table" => relation = value_to_string(&argument.1),
                     "field" => fk = value_to_string(&argument.1),
@@ -520,10 +520,10 @@ pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Vec<Statement>, 
                                     field.name.as_ref().into(),
                                 );
                                 let (projection, joins) =
-                                    get_projection(&field.selection_set.items, "base".to_string());
+                                    get_projection(&field.selection_set.items, "base");
                                 statements.push(Statement::Query(Box::new(Query {
                                     with: None,
-                                    body: Box::new(get_root_query::<T>(
+                                    body: Box::new(get_root_query::<&str>(
                                         projection,
                                         vec![TableWithJoins {
                                             relation: TableFactor::Derived {
@@ -540,7 +540,7 @@ pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Vec<Statement>, 
                                             joins,
                                         }],
                                         None,
-                                        "root".into(),
+                                        &"root",
                                     )),
                                     order_by: vec![],
                                     limit: None,
@@ -555,7 +555,7 @@ pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Vec<Statement>, 
                 }
                 _ => {}
             },
-            _ => {}
+            Definition::Fragment(_) => unimplemented!(),
         }
     }
     Ok(statements)
@@ -585,7 +585,7 @@ mod tests {
                 }
             }"#,
         )
-        .unwrap().to_owned();
+        .unwrap().clone();
         let sql = r#"
             SELECT
             coalesce(json_agg(row_to_json((
