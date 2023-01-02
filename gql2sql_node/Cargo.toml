@@ -1,0 +1,21 @@
+[package]
+authors = ["LongYinan <lynweklm@gmail.com>"]
+edition = "2021"
+name = "gql2sql_node"
+version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = "2"
+napi-derive = "2"
+gql2sql = { path = "../gql2sql" }
+graphql-parser = "0.4.0"
+jemallocator = "0.5.0"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true

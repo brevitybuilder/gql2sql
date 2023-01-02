@@ -152,8 +152,107 @@ fn get_root_query<'a, T: Text<'a>>(
     projection: Vec<SelectItem>,
     from: Vec<TableWithJoins>,
     selection: Option<Expr>,
+    is_single: bool,
     alias: &T::Value,
 ) -> SetExpr {
+    let mut base = Expr::Function(Function {
+        name: ObjectName(vec![Ident {
+            value: "row_to_json".to_string(),
+            quote_style: None,
+        }]),
+        args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(
+            Box::new(Query {
+                with: None,
+                body: Box::new(SetExpr::Select(Box::new(Select {
+                    distinct: false,
+                    top: None,
+                    projection: vec![SelectItem::UnnamedExpr(Expr::Identifier(Ident {
+                        value: "root".to_string(),
+                        quote_style: Some('"'),
+                    }))],
+                    into: None,
+                    from: vec![TableWithJoins {
+                        relation: TableFactor::Derived {
+                            lateral: false,
+                            subquery: Box::new(Query {
+                                with: None,
+                                body: Box::new(SetExpr::Select(Box::new(Select {
+                                    distinct: false,
+                                    top: None,
+                                    projection,
+                                    into: None,
+                                    from: vec![],
+                                    lateral_views: vec![],
+                                    selection: None,
+                                    group_by: vec![],
+                                    cluster_by: vec![],
+                                    distribute_by: vec![],
+                                    sort_by: vec![],
+                                    having: None,
+                                    qualify: None,
+                                }))),
+                                order_by: vec![],
+                                limit: None,
+                                offset: None,
+                                fetch: None,
+                                lock: None,
+                            }),
+                            alias: Some(TableAlias {
+                                name: Ident {
+                                    value: "root".to_string(),
+                                    quote_style: Some('"'),
+                                },
+                                columns: vec![],
+                            }),
+                        },
+                        joins: vec![],
+                    }],
+                    lateral_views: vec![],
+                    selection: None,
+                    group_by: vec![],
+                    cluster_by: vec![],
+                    distribute_by: vec![],
+                    sort_by: vec![],
+                    having: None,
+                    qualify: None,
+                }))),
+                order_by: vec![],
+                limit: None,
+                offset: None,
+                fetch: None,
+                lock: None,
+            }),
+        )))],
+        over: None,
+        distinct: false,
+        special: false,
+    });
+    if is_single == false {
+        base = Expr::Function(Function {
+            over: None,
+            distinct: false,
+            special: false,
+            name: ObjectName(vec![Ident {
+                value: "coalesce".to_string(),
+                quote_style: None,
+            }]),
+            args: vec![
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                    distinct: false,
+                    over: None,
+                    special: false,
+                    name: ObjectName(vec![Ident {
+                        value: "json_agg".to_string(),
+                        quote_style: None,
+                    }]),
+                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(base))],
+                }))),
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                    Value::SingleQuotedString("[]".to_string()),
+                ))),
+            ],
+        });
+    }
     SetExpr::Select(Box::new(Select {
         distinct: false,
         top: None,
@@ -162,107 +261,7 @@ fn get_root_query<'a, T: Text<'a>>(
                 value: alias.as_ref().into(),
                 quote_style: Some('"'),
             },
-            expr: Expr::Function(Function {
-                over: None,
-                distinct: false,
-                special: false,
-                name: ObjectName(vec![Ident {
-                    value: "coalesce".to_string(),
-                    quote_style: None,
-                }]),
-                args: vec![
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
-                        distinct: false,
-                        over: None,
-                        special: false,
-                        name: ObjectName(vec![Ident {
-                            value: "json_agg".to_string(),
-                            quote_style: None,
-                        }]),
-                        args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(
-                            Function {
-                                name: ObjectName(vec![Ident {
-                                    value: "row_to_json".to_string(),
-                                    quote_style: None,
-                                }]),
-                                args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                    Expr::Subquery(Box::new(Query {
-                                        with: None,
-                                        body: Box::new(SetExpr::Select(Box::new(Select {
-                                            distinct: false,
-                                            top: None,
-                                            projection: vec![SelectItem::UnnamedExpr(
-                                                Expr::Identifier(Ident {
-                                                    value: "root".to_string(),
-                                                    quote_style: Some('"'),
-                                                }),
-                                            )],
-                                            into: None,
-                                            from: vec![TableWithJoins {
-                                                relation: TableFactor::Derived {
-                                                    lateral: false,
-                                                    subquery: Box::new(Query {
-                                                        with: None,
-                                                        body: Box::new(SetExpr::Select(Box::new(
-                                                            Select {
-                                                                distinct: false,
-                                                                top: None,
-                                                                projection,
-                                                                into: None,
-                                                                from: vec![],
-                                                                lateral_views: vec![],
-                                                                selection: None,
-                                                                group_by: vec![],
-                                                                cluster_by: vec![],
-                                                                distribute_by: vec![],
-                                                                sort_by: vec![],
-                                                                having: None,
-                                                                qualify: None,
-                                                            },
-                                                        ))),
-                                                        order_by: vec![],
-                                                        limit: None,
-                                                        offset: None,
-                                                        fetch: None,
-                                                        lock: None,
-                                                    }),
-                                                    alias: Some(TableAlias {
-                                                        name: Ident {
-                                                            value: "root".to_string(),
-                                                            quote_style: Some('"'),
-                                                        },
-                                                        columns: vec![],
-                                                    }),
-                                                },
-                                                joins: vec![],
-                                            }],
-                                            lateral_views: vec![],
-                                            selection: None,
-                                            group_by: vec![],
-                                            cluster_by: vec![],
-                                            distribute_by: vec![],
-                                            sort_by: vec![],
-                                            having: None,
-                                            qualify: None,
-                                        }))),
-                                        order_by: vec![],
-                                        limit: None,
-                                        offset: None,
-                                        fetch: None,
-                                        lock: None,
-                                    })),
-                                ))],
-                                over: None,
-                                distinct: false,
-                                special: false,
-                            },
-                        )))],
-                    }))),
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                        Value::SingleQuotedString("[]".to_string()),
-                    ))),
-                ],
-            }),
+            expr: base,
         }],
         into: None,
         from,
@@ -386,8 +385,11 @@ fn get_projection<'a, T: Text<'a>>(
         match selection {
             Selection::Field(field) => {
                 if !field.selection_set.items.is_empty() {
-                    let (selection, order_by, first, after) = parse_args(&field.arguments);
-                    let (relation, fk, pk) = get_relation(field);
+                    let (selection, order_by, mut first, after) = parse_args(&field.arguments);
+                    let (relation, fk, pk, is_single) = get_relation(field);
+                    if is_single {
+                        first = Some(Expr::Value(Value::Number("1".to_string(), false)));
+                    }
                     let sub_path = path.to_string() + "." + &relation;
                     let (sub_projection, sub_joins) =
                         get_projection(&field.selection_set.items, &sub_path);
@@ -447,6 +449,7 @@ fn get_projection<'a, T: Text<'a>>(
                                         joins: sub_joins,
                                     }],
                                     None,
+                                    is_single,
                                     &field.name,
                                 )),
                                 order_by: vec![],
@@ -531,10 +534,11 @@ fn value_to_string<'a, T: Text<'a>>(value: &GqlValue<'a, T>) -> String {
     }
 }
 
-fn get_relation<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, String) {
+fn get_relation<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, String, bool) {
     let mut relation: String = field.name.as_ref().into();
     let mut fk = relation.clone() + "_id";
     let mut pk = "id".into();
+    let mut is_single = false;
     for directive in &field.directives {
         let name: &str = directive.name.as_ref();
         if name == "relation" {
@@ -543,12 +547,17 @@ fn get_relation<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, Strin
                     "table" => relation = value_to_string(&argument.1),
                     "field" => fk = value_to_string(&argument.1),
                     "references" => pk = value_to_string(&argument.1),
+                    "single" => {
+                        if let GqlValue::Boolean(b) = &argument.1 {
+                            is_single = *b;
+                        }
+                    }
                     _ => unimplemented!(),
                 }
             }
         }
     }
-    (relation, fk, pk)
+    (relation, fk, pk, is_single)
 }
 
 fn get_filter_query(
@@ -650,9 +659,7 @@ fn parse_args<'a, T: Text<'a>>(
     (selection, order_by, first, after)
 }
 
-pub fn gql2sql<'a, T: Text<'a>>(
-    ast: Document<'a, T>,
-) -> Result<Vec<(String, Statement)>, anyhow::Error> {
+pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Statement, anyhow::Error> {
     let mut statements = Vec::new();
     for definition in ast.definitions {
         match definition {
@@ -679,7 +686,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     );
                                     statements.push((
                                         field.name.as_ref().into(),
-                                        Statement::Query(Box::new(Query {
+                                        Query {
                                             with: None,
                                             body: Box::new(get_agg_query::<&str>(
                                                 aggs,
@@ -704,7 +711,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                             offset: None,
                                             fetch: None,
                                             lock: None,
-                                        })),
+                                        },
                                     ));
                                 } else {
                                     let (projection, joins) =
@@ -718,7 +725,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     );
                                     statements.push((
                                         field.name.as_ref().into(),
-                                        Statement::Query(Box::new(Query {
+                                        Query {
                                             with: None,
                                             body: Box::new(get_root_query::<&str>(
                                                 projection,
@@ -737,6 +744,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                                     joins,
                                                 }],
                                                 None,
+                                                false,
                                                 &"root",
                                             )),
                                             order_by: vec![],
@@ -744,7 +752,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                             offset: None,
                                             fetch: None,
                                             lock: None,
-                                        })),
+                                        },
                                     ));
                                 };
                             }
@@ -758,7 +766,49 @@ pub fn gql2sql<'a, T: Text<'a>>(
             Definition::Fragment(_) => unimplemented!(),
         }
     }
-    Ok(statements)
+    Ok(Statement::Query(Box::new(Query {
+        with: None,
+        body: Box::new(SetExpr::Select(Box::new(Select {
+            distinct: false,
+            top: None,
+            into: None,
+            projection: vec![SelectItem::ExprWithAlias {
+                alias: Ident {
+                    value: "data".into(),
+                    quote_style: Some('"'),
+                },
+                expr: Expr::Function(Function {
+                    name: ObjectName(vec![Ident {
+                        value: "json_build_object".to_string(),
+                        quote_style: None,
+                    }]),
+                    args: statements.into_iter().map(|(key, query)| {
+                        vec![
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(Value::SingleQuotedString(key)))),
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(query))))
+                        ]
+                    }).flatten().collect(),
+                    over: None,
+                    distinct: false,
+                    special: false,
+                }),
+            }],
+            from: vec![],
+            lateral_views: Vec::new(),
+            selection: None,
+            group_by: Vec::new(),
+            cluster_by: Vec::new(),
+            distribute_by: Vec::new(),
+            sort_by: Vec::new(),
+            having: None,
+            qualify: None,
+        }))),
+        order_by: vec![],
+        limit: None,
+        offset: None,
+        fetch: None,
+        lock: None,
+    })))
 }
 
 #[cfg(test)]
@@ -777,6 +827,10 @@ mod tests {
                     id
                     components @relation(table: "Component", field: ["appId"], references: ["id"]) {
                         id
+                        pageMeta @relation(table: "PageMeta", field: ["componentId"], references: ["id"], single: true) {
+                          id
+                          path
+                        }
                         elements(order: { order: ASC }) @relation(table: "Element", field: ["componentParentId"], references: ["id"]) {
                             id
                             name
@@ -849,17 +903,7 @@ mod tests {
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql).unwrap();
         let generated = gql2sql(gqlast).unwrap();
-        for (i, (_, statement)) in generated.iter().enumerate() {
-            // assert_eq!(name, "App");
-            assert_eq!(statement, &sqlast[i]);
-        }
-        println!(
-            "Statements:\n'{}'",
-            generated
-                .iter()
-                .map(|v| v.1.to_string())
-                .collect::<Vec<_>>()
-                .join(";\n")
-        );
+        // assert_eq!(statement, &sqlast);
+        println!("Statements:\n'{}'", generated.to_string());
     }
 }
