@@ -669,6 +669,7 @@ pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Statement, anyho
                         match selection {
                             Selection::Field(field) => {
                                 let mut name = field.name.as_ref();
+                                let key = field.alias.map_or_else(|| field.name.as_ref().into(), |alias| alias.as_ref().into());
                                 let (selection, order_by, first, after) =
                                     parse_args(&field.arguments);
                                 if name.ends_with("_aggregate") {
@@ -685,7 +686,7 @@ pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Statement, anyho
                                         name.to_owned(),
                                     );
                                     statements.push((
-                                        field.name.as_ref().into(),
+                                        key,
                                         Query {
                                             with: None,
                                             body: Box::new(get_agg_query::<&str>(
@@ -724,7 +725,7 @@ pub fn gql2sql<'a, T: Text<'a>>(ast: Document<'a, T>) -> Result<Statement, anyho
                                         name.to_owned(),
                                     );
                                     statements.push((
-                                        field.name.as_ref().into(),
+                                        key,
                                         Query {
                                             with: None,
                                             body: Box::new(get_root_query::<&str>(
@@ -823,7 +824,7 @@ mod tests {
     fn basic() {
         let gqlast = parse_query::<&str>(
             r#"query App {
-                App(filter: { id: { eq: "345810043118026832" } }, order: { name: ASC }) {
+                app: App(filter: { id: { eq: "345810043118026832" } }, order: { name: ASC }) {
                     id
                     components @relation(table: "Component", field: ["appId"], references: ["id"]) {
                         id
