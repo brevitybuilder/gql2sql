@@ -16,9 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        working-directory: gql2sql_node
 
       - name: Setup node
         uses: actions/setup-node@v3
+        working-directory: gql2sql_node
         with:
           node-version: 16
           cache: 'yarn'
@@ -26,6 +28,7 @@ jobs:
 
       - name: Install
         uses: actions-rs/toolchain@v1
+        working-directory: gql2sql_node
         with:
           toolchain: stable
           profile: minimal
@@ -34,6 +37,7 @@ jobs:
 
       - name: Cache NPM dependencies
         uses: actions/cache@v3
+        working-directory: gql2sql_node
         with:
           path: node_modules
           key: npm-cache-lint-node@16
