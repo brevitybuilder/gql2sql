@@ -27,7 +27,6 @@ jobs:
 
       - name: Install
         uses: actions-rs/toolchain@v1
-        working-directory: gql2sql_node
         with:
           toolchain: stable
           profile: minimal
