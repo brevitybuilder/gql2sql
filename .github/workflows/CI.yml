@@ -16,6 +16,9 @@ env:
       - .editorconfig
       - docs/**
   pull_request: null
+defaults:
+  run:
+    working-directory: gql2sql_node
 jobs:
   build:
     if: "!contains(github.event.head_commit.message, 'skip ci')"

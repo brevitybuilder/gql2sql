@@ -103,5 +103,5 @@
     "singleQuote": true,
     "arrowParens": "always"
   },
-  "packageManager": "pnpm"
+  "packageManager": "yarn@3.3.1"
 }
