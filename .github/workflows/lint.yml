@@ -20,9 +20,10 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v3
         with:
-          working-directory: gql2sql_node
           node-version: 16
           cache: 'yarn'
+          cache-dependency-path: |
+            gql2sql_node/yarn.lock
           check-latest: true
 
       - name: Install
