@@ -16,11 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-        working-directory: gql2sql_node
 
       - name: Setup node
         uses: actions/setup-node@v3
         with:
+          working-directory: gql2sql_node
           node-version: 16
           cache: 'yarn'
           check-latest: true
