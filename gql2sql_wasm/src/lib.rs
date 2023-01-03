@@ -3,11 +3,6 @@ use graphql_parser::query::parse_query;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub fn init_panic_hook() {
-    console_error_panic_hook::set_once();
-}
-
-#[wasm_bindgen]
 pub fn gql2sql(query: String) -> String {
     let gqlast = parse_query::<&str>(&query).unwrap();
     gql2sql_rs(gqlast).unwrap().to_string()
