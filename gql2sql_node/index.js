@@ -104,7 +104,9 @@ switch (platform) {
         nativeBinding = require('@brevity-builder/gql2sql-darwin-universal')
       }
       break
-    } catch {}
+    } catch {
+      // no problem
+    }
     switch (arch) {
       case 'x64':
         localFileExisted = existsSync(join(__dirname, 'gql2sql.darwin-x64.node'))

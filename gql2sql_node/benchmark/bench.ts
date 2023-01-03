@@ -4,7 +4,7 @@ import { parse, print } from 'graphql'
 import { gql2Sql } from '../index'
 
 function parsejs(query: string) {
-  return parse(query);
+  return parse(query)
 }
 
 const query = `
@@ -30,7 +30,7 @@ query App {
       }
     }
 }
-`;
+`
 
 async function run() {
   await b.suite(
@@ -39,8 +39,8 @@ async function run() {
       gql2Sql(query)
     }),
     b.add('JavaScript parse and print', () => {
-      let ast = parsejs(query)
-      print(ast);
+      const ast = parsejs(query)
+      print(ast)
     }),
     b.cycle(),
     b.complete(),
