@@ -32,7 +32,7 @@ async fn main() -> Result<(), Error> {
         .max_connections(5)
         .connect(&std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"))
         .await
-        .unwrap();
+        .expect("can't connect to database");
     let pool_ref = &pool;
 
     let handler_closure = move |event: Request| async move {

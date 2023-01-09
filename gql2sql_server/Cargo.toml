@@ -10,11 +10,17 @@ gql2sql = { path = "../gql2sql" }
 actix-web = "4.2.1"
 json = "0.12.4"
 serde = { version = "1.0.152", features = ["derive"] }
-serde_json = "1.0.91"
+serde_json = { version = "1.0.91", features = ["raw_value"] }
 graphql-parser = "0.4.0"
-sqlx = { version = "0.6", features = [ "runtime-actix-rustls", "postgres" ] }
 dotenv = "0.15.0"
 dotenv_codegen = "0.15.0"
 futures = "0.3.25"
 jemallocator = "0.5.0"
+axum = { version = "0.6.1", features = ["headers"] }
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "any", "postgres"] }
+tower-http = { version = "0.3.5", features = ["compression-br", "compression-gzip", "propagate-header", "sensitive-headers", "set-header", "trace", "validate-request", "auth"] }
+http = "0.2.8"
 
