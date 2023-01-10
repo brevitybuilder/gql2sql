@@ -1,12 +1,10 @@
 use anyhow::anyhow;
-use graphql_parser::query::{
-    Definition, Document, Field, OperationDefinition, Selection,
-};
+use graphql_parser::query::{Definition, Document, Field, OperationDefinition, Selection};
 use graphql_parser::schema::{Text, Type, Value as GqlValue};
 use sqlparser::ast::{
-    Assignment, BinaryOperator, DataType, Expr, Function, FunctionArg, FunctionArgExpr,
-    Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query,
-    Select, SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
+    Assignment, BinaryOperator, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
+    Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
+    SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
     WildcardAdditionalOptions,
 };
 use std::collections::BTreeMap;
@@ -329,6 +327,37 @@ fn get_root_query<'a, T: Text<'a>>(
         distinct: false,
         special: false,
     });
+    if true {
+        let merged = Expr::Function(Function {
+            name: ObjectName(vec![Ident {
+                value: "row_to_json".to_string(),
+                quote_style: None,
+            }]),
+            args: vec![],
+            over: None,
+            distinct: false,
+            special: false,
+        });
+        base = Expr::BinaryOp {
+            left: Box::new(base),
+            op: BinaryOperator::StringConcat,
+            right: Box::new(Expr::Case {
+                operand: None,
+                conditions: vec![Expr::IsNotNull(Box::new(Expr::CompoundIdentifier(vec![
+                    Ident {
+                        value: "root".to_string(),
+                        quote_style: Some('"'),
+                    },
+                    Ident {
+                        value: "merged".to_string(),
+                        quote_style: Some('"'),
+                    },
+                ])))],
+                results: vec![merged],
+                else_result: Some(Box::new(Expr::Value(Value::Null))),
+            }),
+        };
+    }
     if is_single == false {
         base = Expr::Function(Function {
             over: None,
@@ -659,7 +688,12 @@ fn get_projection<'a, T: Text<'a>>(
                     }
                 }
             }
-            _ => unimplemented!(),
+            Selection::InlineFragment(frag) => {
+                if let Some(type_condition) = &frag.type_condition {
+                    println!("found frag");
+                }
+            }
+            Selection::FragmentSpread(_) => unimplemented!(),
         }
     }
     (projection, joins)
@@ -936,9 +970,12 @@ fn get_data_type<'a, T: Text<'a>>(var_type: &Type<'a, T>) -> DataType {
 }
 
 fn get_sorted_json_params(parameters: &BTreeMap<String, (usize, DataType)>) -> Vec<String> {
-  let mut list = parameters.into_iter().map(|(k, v)| (k.to_owned(), v.0)).collect::<Vec<(String, usize)>>();
-  list.sort_by(|a, b| a.1.cmp(&b.1));
-  list.into_iter().map(|(k, _)| k).collect()
+    let mut list = parameters
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.0))
+        .collect::<Vec<(String, usize)>>();
+    list.sort_by(|a, b| a.1.cmp(&b.1));
+    list.into_iter().map(|(k, _)| k).collect()
 }
 
 pub fn gql2sql<'a, T: Text<'a>>(
@@ -964,7 +1001,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     || field.name.as_ref().into(),
                                     |alias| alias.as_ref().into(),
                                 );
-                                let (selection, order_by, first, after) =
+                                let (selection, order_by, mut first, after) =
                                     parse_args(&field.arguments, &parameters);
                                 if name.ends_with("_aggregate") {
                                     name = &name[..name.len() - 10];
@@ -1009,6 +1046,15 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         },
                                     ));
                                 } else {
+                                    let mut is_single = false;
+                                    if name.ends_with("_one") {
+                                        name = &name[..name.len() - 4];
+                                        first = Some(Expr::Value(Value::Number(
+                                            "1".to_string(),
+                                            false,
+                                        )));
+                                        is_single = true;
+                                    }
                                     let (projection, joins) = get_projection(
                                         &field.selection_set.items,
                                         name,
@@ -1022,30 +1068,31 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         after,
                                         name.to_owned(),
                                     );
+                                    let mut root_query = get_root_query::<&str>(
+                                        projection,
+                                        vec![TableWithJoins {
+                                            relation: TableFactor::Derived {
+                                                lateral: false,
+                                                subquery: Box::new(base_query),
+                                                alias: Some(TableAlias {
+                                                    name: Ident {
+                                                        value: "base".to_string(),
+                                                        quote_style: Some('"'),
+                                                    },
+                                                    columns: vec![],
+                                                }),
+                                            },
+                                            joins,
+                                        }],
+                                        None,
+                                        is_single,
+                                        &"root",
+                                    );
                                     statements.push((
                                         key,
                                         Query {
                                             with: None,
-                                            body: Box::new(get_root_query::<&str>(
-                                                projection,
-                                                vec![TableWithJoins {
-                                                    relation: TableFactor::Derived {
-                                                        lateral: false,
-                                                        subquery: Box::new(base_query),
-                                                        alias: Some(TableAlias {
-                                                            name: Ident {
-                                                                value: "base".to_string(),
-                                                                quote_style: Some('"'),
-                                                            },
-                                                            columns: vec![],
-                                                        }),
-                                                    },
-                                                    joins,
-                                                }],
-                                                None,
-                                                false,
-                                                &"root",
-                                            )),
+                                            body: Box::new(root_query),
                                             order_by: vec![],
                                             limit: None,
                                             offset: None,
@@ -1309,7 +1356,7 @@ mod tests {
     fn query_mega() -> Result<(), anyhow::Error> {
         let gqlast = parse_query::<&str>(
             r#"query GetApp($orgId: String!, $appId: String!, $branch: String!) {
-      app: App(
+      app: App_one(
         filter: {
           orgId: { eq: $orgId }
           id: { eq: $appId }
@@ -1339,6 +1386,7 @@ mod tests {
               table: "PageMeta"
               field: ["componentId", "branch"]
               references: ["id", "branch"]
+              single: true
             ) {
             title
             description
@@ -1356,6 +1404,7 @@ mod tests {
               table: "ComponentMeta"
               field: ["componentId", "branch"]
               references: ["id", "branch"]
+              single: true
             ) {
             title
             sources
@@ -1376,7 +1425,7 @@ mod tests {
               sourceProp
               componentId
               utilityId
-              component
+              component(order: { order: ASC })
                 @relation(
                   table: "Element"
                   field: ["id", "branch"]
@@ -1393,7 +1442,13 @@ mod tests {
                 order
                 conditions
               }
-              utility @relation(table: "Utility", field: ["id", "branch"], references: ["componentId", "branch"], single: true) {
+              utility
+                @relation(
+                  table: "Utility"
+                  field: ["id", "branch"]
+                  references: ["componentId", "branch"]
+                  single: true
+                ) {
                 id
                 branch
                 name
@@ -1402,10 +1457,101 @@ mod tests {
                 data
               }
             }
+            events @relation(table: "Event", field: ["componentMetaId", "branch"], references: ["id", "branch"]) {
+                id
+                branch
+                name
+                label
+                help
+                type
+            }
+          }
+        }
+        connections @relation(table: "Connection", field: ["appId", "branch"], references: ["id", "branch"]) {
+          id
+          branch
+          name
+          kind
+          prodUrl
+          mutationSchema @relation(table: "Schema", field: ["mutationConnectionId", "branch"], references: ["id", "branch"], single: true) {
+            id
+            branch
+            schema
+          }
+          endpoints @relation(table: "Endpoint", field: ["connectionId", "branch"], references: ["id", "branch"]) {
+            id
+            branch
+            name
+            method
+            path
+            responseSchemaId
+            headers @relation(table: "Header", field: ["parentEndpointId", "branch"], references: ["id", "branch"]) {
+              id
+              branch
+              key
+              value
+              dynamic
+            }
+            search @relation(table: "Search", field: ["endpointId", "branch"], references: ["id", "branch"]) {
+              id
+              branch
+              key
+              value
+              dynamic
+            }
+          }
+          headers @relation(table: "Header", field: ["parentConnectionId", "branch"], references: ["id", "branch"]) {
+            id
+            branch
+            key
+            value
+            dynamic
+          }
+        }
+        layouts @relation(table: "Layout", field: ["appId", "branch"], references: ["id", "branch"]) {
+          id
+          branch
+          name
+          source
+          kind
+          styles
+          props
+        }
+        plugins @relation(table: "Plugin", field: ["appId", "branch"], references: ["id", "branch"]) {
+          instanceId
+          kind
+        }
+        schemas @relation(table: "Schema", field: ["appId", "branch"], references: ["id", "branch"]) {
+          id
+          branch
+          schema
+        }
+        styles @relation(table: "Style", field: ["appId", "branch"], references: ["id", "branch"]) {
+          id
+          branch
+          name
+          kind
+          styles
+          isDefault
+        }
+        workflows @relation(table: "Workflow", field: ["appId", "branch"], references: ["id", "branch"]) {
+          id
+          branch
+          name
+          args
+          steps(order: { order: ASC }) @relation(table: "Step", field: ["workflowId", "branch"], references: ["id", "branch"]) {
+            id
+            branch
+            parentId
+            kind
+            kindId
+            data
+            order
           }
         }
       }
-    }"#,
+    }
+"#,
         )?
         .clone();
         let sql = r#"UPDATE "Hero" SET "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies""#;
@@ -1414,6 +1560,35 @@ mod tests {
         let (statement, params) = gql2sql(gqlast)?;
         println!("Statements:\n'{}'", statement.to_string());
         // assert_eq!(statements, sqlast);
+        Ok(())
+    }
+
+    #[test]
+    fn query_frag() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query::<&str>(
+            r#"query GetApp($componentId: String!) {
+                component: Component_one(filter: { id : { eq: $componentId } }) {
+                   id
+                   branch
+                   ... on ComponentMeta @relation(
+                        table: "ComponentMeta"
+                        field: ["componentId", "branch"]
+                        references: ["id", "branch"]
+                        single: true
+                    ) {
+                     name
+                   }
+                }
+            }"#,
+        )?
+        .clone();
+        println!("ast {:#?}", gqlast);
+        let sql = r#"SELECT json_build_object('component', (SELECT row_to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root")) || CASE WHEN pm."instanceId" IS NOT NULL THEN row_to_json('title', 'title') ELSE NULL END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base")) AS "data""#;
+        let dialect = PostgreSqlDialect {};
+        let sqlast = Parser::parse_sql(&dialect, sql)?;
+        let (statement, params) = gql2sql(gqlast)?;
+        println!("Statements:\n'{}'", statement.to_string());
+        assert_eq!(vec![statement], sqlast);
         Ok(())
     }
 }
