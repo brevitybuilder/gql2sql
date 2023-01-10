@@ -104,7 +104,7 @@ switch (platform) {
         nativeBinding = require('@brevity-builder/gql2sql-darwin-universal')
       }
       break
-    // eslint-disable-next-line no-empty
+      // eslint-disable-next-line no-empty
     } catch {}
     switch (arch) {
       case 'x64':
