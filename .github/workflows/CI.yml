@@ -357,7 +357,9 @@ jobs:
           - '18'
     runs-on: ubuntu-latest
     steps:
-      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
+      - name: Reset
+        working-directory: .
+        run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
       - uses: actions/checkout@v3
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -394,7 +396,9 @@ jobs:
       - build
     runs-on: ubuntu-latest
     steps:
-      - run: docker run --rm -v ${{ github.workspace }}:/build -w /build/gql2sql_node --privileged multiarch/qemu-user-static:register --reset
+      - name: Reset
+        working-directory: .
+        run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
       - uses: actions/checkout@v3
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -438,7 +442,9 @@ jobs:
           - '18'
     runs-on: ubuntu-latest
     steps:
-      - run: docker run --rm -v ${{ github.workspace }}:/build -w /build/gql2sql_node --privileged multiarch/qemu-user-static:register --reset
+      - name: Reset
+        working-directory: .
+        run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
       - uses: actions/checkout@v3
       - name: Download artifacts
         uses: actions/download-artifact@v3
