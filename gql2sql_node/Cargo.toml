@@ -8,6 +8,7 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
+serde = { version = "1.0.152", features = ["derive"] }
 napi = "2"
 napi-derive = "2"
 gql2sql = { path = "../gql2sql" }

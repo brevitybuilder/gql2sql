@@ -5,7 +5,8 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 pub fn gql2sql(query: String) -> String {
     let gqlast = parse_query::<&str>(&query).unwrap();
-    gql2sql_rs(gqlast).unwrap().to_string()
+    let (statement, _params) = gql2sql_rs(gqlast).unwrap();
+    statement.to_string()
 }
 
 #[cfg(test)]

@@ -3,13 +3,18 @@ static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
+use serde_json::{json, Value};
+use sqlx::Arguments;
+use sqlx::{
+    postgres::{PgArguments, PgPoolOptions},
+    Pool, Postgres,
+};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Query {
     query: String,
+    variables: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,15 +43,45 @@ async fn main() -> Result<(), Error> {
     let handler_closure = move |event: Request| async move {
         if let Some(payload) = event.payload::<Query>().unwrap() {
             let gqlast = graphql_parser::query::parse_query::<String>(&payload.query).unwrap();
-            let query = gql2sql::gql2sql(gqlast).unwrap().to_string();
-            let value: (sqlx::types::JsonValue,) =
-                sqlx::query_as(&query).fetch_one(pool_ref).await.unwrap();
+            let (statement, params) = gql2sql::gql2sql(gqlast).unwrap();
+            let mut args = vec![];
+            if let Some(Value::Object(mut map)) = payload.variables {
+                if params.is_some() {
+                    params.unwrap().into_iter().for_each(|p| {
+                        args.push(map.remove(&p).unwrap_or(Value::Null));
+                    });
+                }
+            }
+
+            let mut pg_args = PgArguments::default();
+            args.into_iter().for_each(|a| match a {
+                Value::String(s) => {
+                    println!("string: {}", s);
+                    pg_args.add(s);
+                }
+                Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        pg_args.add(i);
+                    } else if let Some(f) = n.as_f64() {
+                        pg_args.add(f);
+                    }
+                }
+                Value::Bool(b) => pg_args.add(b),
+                Value::Null => pg_args.add::<Option<String>>(None),
+                _ => panic!("Unsupported type"),
+            });
+
+            let value = sqlx::query_scalar_with(&statement.to_string(), pg_args)
+                .fetch_one(pool_ref)
+                .await
+                .unwrap();
+
             Result::<Response<Body>, Error>::Ok(
                 Response::builder()
                     .status(200)
                     .body(Body::Text(
                         serde_json::to_string(&QueryResponse {
-                            data: value.0,
+                            data: value,
                             meta: None,
                         })
                         .unwrap(),

@@ -3,10 +3,10 @@ static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 extern crate dotenv;
 
+use sqlx::Arguments;
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts, State},
-    headers::Vary,
     http::{request::Parts, StatusCode},
     response::AppendHeaders,
     routing::post,
@@ -18,7 +18,10 @@ use http::{
     HeaderValue,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sqlx::{Row, postgres::PgArguments};
 use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{Executor, Statement};
 use std::collections::BTreeMap;
 use std::{iter::once, net::SocketAddr};
 use tower_http::{
@@ -35,6 +38,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[derive(Debug, Serialize, Deserialize)]
 struct Query {
     query: String,
+    variables: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,31 +50,71 @@ struct QueryResponse {
 async fn graphql(
     State(pool): State<PgPool>,
     Json(payload): Json<Query>,
-) -> Result<(AppendHeaders<[(HeaderName, HeaderValue); 1]>, Json<QueryResponse>), (StatusCode, String)> {
+) -> Result<
+    (
+        AppendHeaders<[(HeaderName, HeaderValue); 1]>,
+        Json<QueryResponse>,
+    ),
+    (StatusCode, String),
+> {
     let mut meta = BTreeMap::new();
     let start = std::time::Instant::now();
     let gqlast = graphql_parser::query::parse_query::<String>(&payload.query).unwrap();
     meta.insert("parse".to_string(), start.elapsed().as_micros().to_string());
     let start = std::time::Instant::now();
-    let query = gql2sql::gql2sql(gqlast).unwrap().to_string();
+    let (statement, params) = gql2sql::gql2sql(gqlast).unwrap();
     meta.insert(
         "transform".to_string(),
         start.elapsed().as_micros().to_string(),
     );
     let start = std::time::Instant::now();
-    let value: (sqlx::types::JsonValue,) = sqlx::query_as(&query).fetch_one(&pool).await.unwrap();
+    let mut args = vec![];
+    if let Some(Value::Object(mut map)) = payload.variables {
+        if params.is_some() {
+            params.unwrap().into_iter().for_each(|p| {
+                args.push(map.remove(&p).unwrap_or(Value::Null));
+            });
+        }
+    }
+
+    let mut pg_args = PgArguments::default();
+    args.into_iter().for_each(|a| {
+        match a {
+            Value::String(s) => {
+                println!("string: {}", s);
+                pg_args.add(s);
+            },
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    pg_args.add(i);
+                } else if let Some(f) = n.as_f64() {
+                    pg_args.add(f);
+                }
+            }
+            Value::Bool(b) => pg_args.add(b),
+            Value::Null => pg_args.add::<Option<String>>(None),
+            _ => panic!("Unsupported type"),
+        }
+    });
+
+    let value = sqlx::query_scalar_with(&statement.to_string(), pg_args)
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
     meta.insert(
         "execute".to_string(),
         start.elapsed().as_micros().to_string(),
     );
-    meta.insert("query".to_string(), query);
+
+    meta.insert("query".to_string(), statement.to_string());
     Ok((
         AppendHeaders([(
             HeaderName::from_static("vary"),
             HeaderValue::from_static("accept-encoding"),
         )]),
         Json(QueryResponse {
-            data: value.0,
+            data: value,
             meta: Some(meta),
         }),
     ))
