@@ -15,7 +15,7 @@ cd ..
 
 git add .
 git commit -m "$(< version.txt)"
-git tag -a "v$(< version.txt)" -m "Release v$(< version.txt)"
+git tag -a "v$(< version.txt)" -m "$(< version.txt)"
 git push origin main --tags
 
 rm version.txt
