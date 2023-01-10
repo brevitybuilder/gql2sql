@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -e
 
 git update-index -q --refresh
 if ! git diff-index --quiet HEAD --; then
