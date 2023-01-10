@@ -383,7 +383,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ghcr.io/napi-rs/napi-rs/nodejs:aarch64-${{ matrix.node }}
-          options: '-v ${{ github.workspace }}:/build -w /build'
+          options: '-v ${{ github.workspace }}:/build -w /build/gql2sql_node'
           run: |
             set -e
             yarn test
@@ -394,7 +394,7 @@ jobs:
       - build
     runs-on: ubuntu-latest
     steps:
-      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
+      - run: docker run --rm -v ${{ github.workspace }}:/build -w /build/gql2sql_node --privileged multiarch/qemu-user-static:register --reset
       - uses: actions/checkout@v3
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -438,7 +438,7 @@ jobs:
           - '18'
     runs-on: ubuntu-latest
     steps:
-      - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
+      - run: docker run --rm -v ${{ github.workspace }}:/build -w /build/gql2sql_node --privileged multiarch/qemu-user-static:register --reset
       - uses: actions/checkout@v3
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -463,7 +463,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ghcr.io/napi-rs/napi-rs/nodejs:armhf-${{ matrix.node }}
-          options: '-v ${{ github.workspace }}:/build -w /build'
+          options: '-v ${{ github.workspace }}:/build -w /build/gql2sql_node'
           run: |
             set -e
             yarn test
