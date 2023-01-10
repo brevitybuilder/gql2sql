@@ -297,7 +297,7 @@ fn get_root_query<'a, T: Text<'a>>(
                                 limit: None,
                                 offset: None,
                                 fetch: None,
-                                lock: None,
+                                locks: vec![],
                             }),
                             alias: Some(TableAlias {
                                 name: Ident {
@@ -322,7 +322,7 @@ fn get_root_query<'a, T: Text<'a>>(
                 limit: None,
                 offset: None,
                 fetch: None,
-                lock: None,
+                locks: vec![],
             }),
         )))],
         over: None,
@@ -573,7 +573,7 @@ fn get_projection<'a, T: Text<'a>>(
                                 limit: None,
                                 offset: None,
                                 fetch: None,
-                                lock: None,
+                                locks: vec![],
                             }),
                             alias: Some(TableAlias {
                                 name: Ident {
@@ -765,7 +765,7 @@ fn get_filter_query(
         limit: first,
         offset: after,
         fetch: None,
-        lock: None,
+        locks: vec![],
     }
 }
 
@@ -1005,7 +1005,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                             limit: None,
                                             offset: None,
                                             fetch: None,
-                                            lock: None,
+                                            locks: vec![],
                                         },
                                     ));
                                 } else {
@@ -1050,7 +1050,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                             limit: None,
                                             offset: None,
                                             fetch: None,
-                                            lock: None,
+                                            locks: vec![],
                                         },
                                     ));
                                 };
@@ -1108,7 +1108,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                         limit: None,
                         offset: None,
                         fetch: None,
-                        lock: None,
+                        locks: vec![],
                     }));
                     if !parameters.is_empty() {
                         return Ok((statement, Some(get_sorted_json_params(&parameters))));
@@ -1154,7 +1154,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                                 limit: None,
                                                 offset: None,
                                                 fetch: None,
-                                                lock: None,
+                                                locks: vec![],
                                             }),
                                             partitioned: None,
                                             after_columns: vec![],
