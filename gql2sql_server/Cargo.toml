@@ -16,7 +16,7 @@ dotenv = "0.15.0"
 dotenv_codegen = "0.15.0"
 futures = "0.3.25"
 jemallocator = "0.5.0"
-axum = { version = "0.6.1", features = ["headers"] }
+axum = { version = "0.6.2", features = ["headers"] }
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
