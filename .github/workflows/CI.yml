@@ -203,11 +203,13 @@ jobs:
             whoami
             env
             freebsd-version
+            cd gql2sql_node
             yarn install
             yarn build
             strip -x *.node
             yarn test
-            rm -rf node_modules
+            cd ..
+            rm -rf gql2sql_node/node_modules
             rm -rf target
       - name: Upload artifact
         uses: actions/upload-artifact@v3
@@ -230,6 +232,7 @@ jobs:
           - '16'
           - '18'
     runs-on: ${{ matrix.settings.host }}
+
     steps:
       - uses: actions/checkout@v3
       - name: Setup node
@@ -245,16 +248,19 @@ jobs:
           path: .yarn/cache
           key: npm-cache-test-${{ matrix.settings.target }}-${{ matrix.node }}
       - name: Install dependencies
+        working-directory: gql2sql_node
         run: yarn install
       - name: Download artifacts
         uses: actions/download-artifact@v3
         with:
           name: bindings-${{ matrix.settings.target }}
-          path: .
+          path: gql2sql_node
       - name: List packages
+        working-directory: gql2sql_node
         run: ls -R .
         shell: bash
       - name: Test bindings
+        working-directory: gql2sql_node
         run: yarn test
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
@@ -288,11 +294,13 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: bindings-x86_64-unknown-linux-gnu
-          path: .
+          path: gql2sql_node
       - name: List packages
+        working-directory: gql2sql_node
         run: ls -R .
         shell: bash
       - name: Test bindings
+        working-directory: gql2sql_node
         run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-slim yarn test
   test-linux-x64-musl-binding:
     name: Test bindings on x86_64-unknown-linux-musl - node@${{ matrix.node }}
@@ -328,11 +336,13 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: bindings-x86_64-unknown-linux-musl
-          path: .
+          path: gql2sql_node
       - name: List packages
+        working-directory: gql2sql_node
         run: ls -R .
         shell: bash
       - name: Test bindings
+        working-directory: gql2sql_node
         run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-alpine yarn test
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
@@ -353,8 +363,9 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: bindings-aarch64-unknown-linux-gnu
-          path: .
+          path: gql2sql_node
       - name: List packages
+        working-directory: gql2sql_node
         run: ls -R .
         shell: bash
       - name: Cache NPM dependencies
@@ -363,6 +374,7 @@ jobs:
           path: .yarn/cache
           key: npm-cache-test-linux-aarch64-gnu-${{ matrix.node }}
       - name: Install dependencies
+        working-directory: gql2sql_node
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "glibc"
@@ -371,7 +383,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ghcr.io/napi-rs/napi-rs/nodejs:aarch64-${{ matrix.node }}
-          options: '-v ${{ github.workspace }}:/build -w /build'
+          options: '-v ${{ github.workspace }}:/build -w /build/gql2sql_node'
           run: |
             set -e
             yarn test
@@ -388,8 +400,9 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: bindings-aarch64-unknown-linux-musl
-          path: .
+          path: gql2sql_node
       - name: List packages
+        working-directory: gql2sql_node
         run: ls -R .
         shell: bash
       - name: Cache NPM dependencies
@@ -398,6 +411,7 @@ jobs:
           path: .yarn/cache
           key: npm-cache-test-linux-aarch64-musl-${{ matrix.node }}
       - name: Install dependencies
+        working-directory: gql2sql_node
         run: |
           yarn config set supportedArchitectures.cpu "arm64"
           yarn config set supportedArchitectures.libc "musl"
@@ -406,7 +420,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: multiarch/alpine:aarch64-latest-stable
-          options: '-v ${{ github.workspace }}:/build -w /build'
+          options: '-v ${{ github.workspace }}:/build -w /build/gql2sql_node'
           run: |
             set -e
             apk add nodejs npm yarn
@@ -430,8 +444,9 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: bindings-armv7-unknown-linux-gnueabihf
-          path: .
+          path: gql2sql_node
       - name: List packages
+        working-directory: gql2sql_node
         run: ls -R .
         shell: bash
       - name: Cache NPM dependencies
@@ -440,6 +455,7 @@ jobs:
           path: .yarn/cache
           key: npm-cache-test-linux-arm-gnueabihf-${{ matrix.node }}
       - name: Install dependencies
+        working-directory: gql2sql_node
         run: |
           yarn config set supportedArchitectures.cpu "arm"
           yarn install
@@ -447,7 +463,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: ghcr.io/napi-rs/napi-rs/nodejs:armhf-${{ matrix.node }}
-          options: '-v ${{ github.workspace }}:/build -w /build'
+          options: '-v ${{ github.workspace }}:/build -w /build/gql2sql_node'
           run: |
             set -e
             yarn test
@@ -480,17 +496,21 @@ jobs:
           restore-keys: |
             npm-cache-
       - name: Install dependencies
+        working-directory: gql2sql_node
         run: yarn install
       - name: Download all artifacts
         uses: actions/download-artifact@v3
         with:
-          path: artifacts
+          path: gql2sql_node/artifacts
       - name: Move artifacts
+        working-directory: gql2sql_node
         run: yarn artifacts
       - name: List packages
+        working-directory: gql2sql_node
         run: ls -R ./npm
         shell: bash
       - name: Publish
+        working-directory: gql2sql_node
         run: |
           if git log -1 --pretty=%B | grep "^[0-9]\+\.[0-9]\+\.[0-9]\+$";
           then
