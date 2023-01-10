@@ -1,6 +1,6 @@
 {
   "name": "@brevity-builder/gql2sql-android-arm-eabi",
-  "version": "1.0.0",
+  "version": "0.0.2",
   "os": [
     "android"
   ],
