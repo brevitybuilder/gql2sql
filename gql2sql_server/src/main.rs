@@ -3,7 +3,7 @@ static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 extern crate dotenv;
 
-use sqlx::Arguments;
+use sqlx::Row;
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts, State},
@@ -18,10 +18,10 @@ use http::{
     HeaderValue,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use sqlx::{Row, postgres::PgArguments};
+use serde_json::{value::{RawValue, to_raw_value}, Value};
+use sqlx::{postgres::{PgArguments, PgRow}, FromRow};
+use sqlx::Arguments;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use sqlx::{Executor, Statement};
 use std::collections::BTreeMap;
 use std::{iter::once, net::SocketAddr};
 use tower_http::{
@@ -35,37 +35,51 @@ use tower_http::{
 use tracing::Level;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct Query {
     query: String,
     variables: Option<Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+
+#[derive(Deserialize)]
 struct QueryResponse {
-    data: sqlx::types::JsonValue,
+    data: Box<sqlx::types::JsonRawValue>,
+}
+
+impl FromRow<'_, PgRow> for QueryResponse {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        Ok(QueryResponse {
+            data: to_raw_value::<&sqlx::types::JsonRawValue>(&row.get(0)).unwrap(),
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct APIResponse {
+    data: Box<sqlx::types::JsonRawValue>,
     meta: Option<BTreeMap<String, String>>,
 }
 
-async fn graphql(
+async fn graphql<'a>(
     State(pool): State<PgPool>,
     Json(payload): Json<Query>,
 ) -> Result<
     (
         AppendHeaders<[(HeaderName, HeaderValue); 1]>,
-        Json<QueryResponse>,
+        Json<APIResponse>,
     ),
     (StatusCode, String),
 > {
     let mut meta = BTreeMap::new();
     let start = std::time::Instant::now();
     let gqlast = graphql_parser::query::parse_query::<String>(&payload.query).unwrap();
-    meta.insert("parse".to_string(), start.elapsed().as_micros().to_string());
+    meta.insert("parse".to_string(), start.elapsed().as_millis().to_string());
     let start = std::time::Instant::now();
     let (statement, params) = gql2sql::gql2sql(gqlast).unwrap();
     meta.insert(
         "transform".to_string(),
-        start.elapsed().as_micros().to_string(),
+        start.elapsed().as_millis().to_string(),
     );
     let start = std::time::Instant::now();
     let mut args = vec![];
@@ -78,33 +92,31 @@ async fn graphql(
     }
 
     let mut pg_args = PgArguments::default();
-    args.into_iter().for_each(|a| {
-        match a {
-            Value::String(s) => {
-                println!("string: {}", s);
-                pg_args.add(s);
-            },
-            Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    pg_args.add(i);
-                } else if let Some(f) = n.as_f64() {
-                    pg_args.add(f);
-                }
-            }
-            Value::Bool(b) => pg_args.add(b),
-            Value::Null => pg_args.add::<Option<String>>(None),
-            _ => panic!("Unsupported type"),
+    args.into_iter().for_each(|a| match a {
+        Value::String(s) => {
+            println!("string: {}", s);
+            pg_args.add(s);
         }
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                pg_args.add(i);
+            } else if let Some(f) = n.as_f64() {
+                pg_args.add(f);
+            }
+        }
+        Value::Bool(b) => pg_args.add(b),
+        Value::Null => pg_args.add::<Option<String>>(None),
+        _ => panic!("Unsupported type"),
     });
 
-    let value = sqlx::query_scalar_with(&statement.to_string(), pg_args)
+    let value: QueryResponse = sqlx::query_as_with(&statement.to_string(), pg_args)
         .fetch_one(&pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     meta.insert(
         "execute".to_string(),
-        start.elapsed().as_micros().to_string(),
+        start.elapsed().as_millis().to_string(),
     );
 
     meta.insert("query".to_string(), statement.to_string());
@@ -113,8 +125,8 @@ async fn graphql(
             HeaderName::from_static("vary"),
             HeaderValue::from_static("accept-encoding"),
         )]),
-        Json(QueryResponse {
-            data: value,
+        Json(APIResponse {
+            data: value.data,
             meta: Some(meta),
         }),
     ))
