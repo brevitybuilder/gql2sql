@@ -18,7 +18,7 @@ use http::{
     HeaderValue,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{value::{RawValue, to_raw_value}, Value};
+use serde_json::{value::{to_raw_value}, Value};
 use sqlx::{postgres::{PgArguments, PgRow}, FromRow};
 use sqlx::Arguments;
 use sqlx::{postgres::PgPoolOptions, PgPool};

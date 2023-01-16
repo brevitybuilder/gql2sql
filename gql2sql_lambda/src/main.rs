@@ -3,12 +3,9 @@ static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
+use sqlx::postgres::{PgArguments, PgPoolOptions};
 use sqlx::Arguments;
-use sqlx::{
-    postgres::{PgArguments, PgPoolOptions},
-    Pool, Postgres,
-};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,8 +43,8 @@ async fn main() -> Result<(), Error> {
             let (statement, params) = gql2sql::gql2sql(gqlast).unwrap();
             let mut args = vec![];
             if let Some(Value::Object(mut map)) = payload.variables {
-                if params.is_some() {
-                    params.unwrap().into_iter().for_each(|p| {
+                if let Some(params) = params {
+                    params.into_iter().for_each(|p| {
                         args.push(map.remove(&p).unwrap_or(Value::Null));
                     });
                 }

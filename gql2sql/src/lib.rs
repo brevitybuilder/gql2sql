@@ -19,7 +19,7 @@ fn get_value<'a, T: Text<'a>>(
     match value {
         GqlValue::Variable(v) => {
             let (index, _data_type) = parameters
-                .get(v.as_ref().into())
+                .get(v.as_ref())
                 .expect("variable not found");
             Value::Placeholder(format!("${}", index))
         }
@@ -130,11 +130,10 @@ fn get_filter<'a, T: Text<'a>>(
                     _ => {
                         let mut conditions: Vec<Expr> = list
                             .iter()
-                            .map(|v| match v {
+                            .filter_map(|v| match v {
                                 GqlValue::Object(o) => get_filter(o, parameters),
                                 _ => None,
                             })
-                            .filter_map(|v| v)
                             .collect();
                         let mut last_expr = conditions.remove(0);
                         for condition in conditions {
@@ -157,11 +156,10 @@ fn get_filter<'a, T: Text<'a>>(
                     _ => {
                         let mut conditions: Vec<Expr> = list
                             .iter()
-                            .map(|v| match v {
+                            .filter_map(|v| match v {
                                 GqlValue::Object(o) => get_filter(o, parameters),
                                 _ => None,
                             })
-                            .filter_map(|v| v)
                             .collect();
                         let mut last_expr = conditions.remove(0);
                         for condition in conditions {
@@ -360,7 +358,7 @@ fn get_root_query<'a, T: Text<'a>>(
             }),
         };
     }
-    if is_single == false {
+    if !is_single {
         base = Expr::Function(Function {
             over: None,
             distinct: false,
@@ -426,7 +424,7 @@ fn get_agg_agg_projection<'a, T: Text<'a>>(field: &Field<'a, T>) -> Vec<Function
                 ))),
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
                     name: ObjectName(vec![Ident {
-                        value: name.to_uppercase().to_string(),
+                        value: name.to_uppercase(),
                         quote_style: None,
                     }]),
                     args: vec![FunctionArg::Unnamed(FunctionArgExpr::Wildcard)],
@@ -441,7 +439,7 @@ fn get_agg_agg_projection<'a, T: Text<'a>>(field: &Field<'a, T>) -> Vec<Function
                 .selection_set
                 .items
                 .iter()
-                .map(|arg| {
+                .flat_map(|arg| {
                     if let Selection::Field(field) = arg {
                         vec![
                             FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
@@ -449,7 +447,7 @@ fn get_agg_agg_projection<'a, T: Text<'a>>(field: &Field<'a, T>) -> Vec<Function
                             ))),
                             FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
                                 name: ObjectName(vec![Ident {
-                                    value: name.to_uppercase().to_string(),
+                                    value: name.to_uppercase(),
                                     quote_style: None,
                                 }]),
                                 args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
@@ -467,7 +465,6 @@ fn get_agg_agg_projection<'a, T: Text<'a>>(field: &Field<'a, T>) -> Vec<Function
                         unreachable!()
                     }
                 })
-                .flatten()
                 .collect();
             vec![
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
@@ -532,7 +529,7 @@ fn get_join<'a, T: Text<'a>>(
                     quote_style: Some('"'),
                 },
                 Ident {
-                    value: fk.clone(),
+                    value: fk,
                     quote_style: Some('"'),
                 },
             ])),
@@ -543,7 +540,7 @@ fn get_join<'a, T: Text<'a>>(
                     quote_style: Some('"'),
                 },
                 Ident {
-                    value: pk.clone(),
+                    value: pk,
                     quote_style: Some('"'),
                 },
             ])),
@@ -578,7 +575,7 @@ fn get_join<'a, T: Text<'a>>(
                             subquery: Box::new(sub_query),
                             alias: Some(TableAlias {
                                 name: Ident {
-                                    value: sub_path.clone(),
+                                    value: sub_path,
                                     quote_style: Some('"'),
                                 },
                                 columns: vec![],
@@ -636,7 +633,7 @@ fn get_static<'a, T: Text<'a>>(
                     GqlValue::Boolean(value) => value.to_string(),
                     _ => unreachable!(),
                 })
-                .unwrap_or("".to_string());
+                .unwrap_or_else(|| "".to_string());
             return Some(SelectItem::ExprWithAlias {
                 expr: Expr::Value(Value::SingleQuotedString(value)),
                 alias: Ident {
@@ -983,7 +980,7 @@ fn get_mutation_columns<'a, T: Text<'a>>(
                 rows.push(row);
             }
             ("data", GqlValue::List(list)) => {
-                if list.len() == 0 {
+                if list.is_empty() {
                     continue;
                 }
                 for (i, item) in list.iter().enumerate() {
@@ -1070,7 +1067,7 @@ fn get_data_type<'a, T: Text<'a>>(var_type: &Type<'a, T>) -> DataType {
 
 fn get_sorted_json_params(parameters: &BTreeMap<String, (usize, DataType)>) -> Vec<String> {
     let mut list = parameters
-        .into_iter()
+        .iter()
         .map(|(k, v)| (k.to_owned(), v.0))
         .collect::<Vec<(String, usize)>>();
     list.sort_by(|a, b| a.1.cmp(&b.1));
@@ -1224,7 +1221,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     }]),
                                     args: statements
                                         .into_iter()
-                                        .map(|(key, query)| {
+                                        .flat_map(|(key, query)| {
                                             vec![
                                                 FunctionArg::Unnamed(FunctionArgExpr::Expr(
                                                     Expr::Value(Value::SingleQuotedString(key)),
@@ -1234,7 +1231,6 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                                 )),
                                             ]
                                         })
-                                        .flatten()
                                         .collect(),
                                     over: None,
                                     distinct: false,
@@ -1396,7 +1392,7 @@ mod tests {
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql).unwrap();
         let (statement, _params) = gql2sql(gqlast)?;
-        println!("Statements:\n'{}'", statement.to_string());
+        println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -1417,7 +1413,7 @@ mod tests {
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(gqlast)?;
-        println!("Statements:\n'{}'", statement.to_string());
+        println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -1447,7 +1443,7 @@ mod tests {
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(gqlast)?;
-        println!("Statements:\n'{}'", statement.to_string());
+        println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -1656,9 +1652,9 @@ mod tests {
         .clone();
         let sql = r#"UPDATE "Hero" SET "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies""#;
         let dialect = PostgreSqlDialect {};
-        let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, params) = gql2sql(gqlast)?;
-        println!("Statements:\n'{}'", statement.to_string());
+        let _sqlast = Parser::parse_sql(&dialect, sql)?;
+        let (statement, _params) = gql2sql(gqlast)?;
+        println!("Statements:\n'{}'", statement);
         // assert_eq!(statements, sqlast);
         Ok(())
     }
@@ -1686,8 +1682,8 @@ mod tests {
         let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root"))::jsonb || CASE WHEN "root.ComponentMeta"."ComponentMeta" IS NOT NULL THEN to_jsonb("ComponentMeta") ELSE jsonb_build_object() END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.ComponentMeta"."title") AS "root")) AS "ComponentMeta" FROM (SELECT * FROM "ComponentMeta" WHERE "ComponentMeta"."componentId" = "base"."id" AND "ComponentMeta"."branch" = "base"."branch" LIMIT 1) AS "base.ComponentMeta") AS "root.ComponentMeta" ON ('true'))) AS "data""#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, params) = gql2sql(gqlast)?;
-        println!("Statements:\n'{}'", statement.to_string());
+        let (statement, _params) = gql2sql(gqlast)?;
+        println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -1707,8 +1703,8 @@ mod tests {
         let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind") AS "root")) AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base")) AS "data""#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, params) = gql2sql(gqlast)?;
-        println!("Statements:\n'{}'", statement.to_string());
+        let (statement, _params) = gql2sql(gqlast)?;
+        println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
