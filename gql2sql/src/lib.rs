@@ -1,3 +1,6 @@
+mod consts;
+
+use crate::consts::*;
 use anyhow::anyhow;
 use graphql_parser::query::{
     Definition, Document, Field, OperationDefinition, Selection, TypeCondition,
@@ -176,7 +179,7 @@ fn get_filter<'a, T: Text<'a>>(
                 _ => {
                     let left = Expr::Identifier(Ident {
                         value: key.as_ref().to_owned(),
-                        quote_style: Some('"'),
+                        quote_style: Some(QUOTE_CHAR),
                     });
                     get_expr(left, value, parameters)
                 }
@@ -190,7 +193,7 @@ fn get_filter<'a, T: Text<'a>>(
                     get_expr(
                         Expr::Identifier(Ident {
                             value: key.as_ref().into(),
-                            quote_style: Some('"'),
+                            quote_style: Some(QUOTE_CHAR),
                         }),
                         value,
                         parameters,
@@ -222,12 +225,12 @@ fn get_agg_query<'a, T: Text<'a>>(
         into: None,
         projection: vec![SelectItem::ExprWithAlias {
             alias: Ident {
-                value: "root".into(),
-                quote_style: Some('"'),
+                value: ROOT_LABEL.into(),
+                quote_style: Some(QUOTE_CHAR),
             },
             expr: Expr::Function(Function {
                 name: ObjectName(vec![Ident {
-                    value: "json_build_object".to_string(),
+                    value: JSON_BUILD_OBJECT.to_string(),
                     quote_style: None,
                 }]),
                 args: aggs,
@@ -258,7 +261,7 @@ fn get_root_query<'a, T: Text<'a>>(
 ) -> SetExpr {
     let mut base = Expr::Function(Function {
         name: ObjectName(vec![Ident {
-            value: "to_json".to_string(),
+            value: TO_JSON.to_string(),
             quote_style: None,
         }]),
         args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(
@@ -268,8 +271,8 @@ fn get_root_query<'a, T: Text<'a>>(
                     distinct: false,
                     top: None,
                     projection: vec![SelectItem::UnnamedExpr(Expr::Identifier(Ident {
-                        value: "root".to_string(),
-                        quote_style: Some('"'),
+                        value: ROOT_LABEL.to_string(),
+                        quote_style: Some(QUOTE_CHAR),
                     }))],
                     into: None,
                     from: vec![TableWithJoins {
@@ -300,8 +303,8 @@ fn get_root_query<'a, T: Text<'a>>(
                             }),
                             alias: Some(TableAlias {
                                 name: Ident {
-                                    value: "root".to_string(),
-                                    quote_style: Some('"'),
+                                    value: ROOT_LABEL.to_string(),
+                                    quote_style: Some(QUOTE_CHAR),
                                 },
                                 columns: vec![],
                             }),
@@ -373,7 +376,7 @@ fn get_root_query<'a, T: Text<'a>>(
                     over: None,
                     special: false,
                     name: ObjectName(vec![Ident {
-                        value: "json_agg".to_string(),
+                        value: JSON_AGG.to_string(),
                         quote_style: None,
                     }]),
                     args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(base))],
@@ -390,7 +393,7 @@ fn get_root_query<'a, T: Text<'a>>(
         projection: vec![SelectItem::ExprWithAlias {
             alias: Ident {
                 value: alias.as_ref().into(),
-                quote_style: Some('"'),
+                quote_style: Some(QUOTE_CHAR),
             },
             expr: base,
         }],
@@ -453,7 +456,7 @@ fn get_agg_agg_projection<'a, T: Text<'a>>(field: &Field<'a, T>) -> Vec<Function
                                 args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
                                     Expr::Identifier(Ident {
                                         value: field.name.as_ref().into(),
-                                        quote_style: Some('"'),
+                                        quote_style: Some(QUOTE_CHAR),
                                     }),
                                 ))],
                                 over: None,
@@ -472,7 +475,7 @@ fn get_agg_agg_projection<'a, T: Text<'a>>(field: &Field<'a, T>) -> Vec<Function
                 ))),
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
                     name: ObjectName(vec![Ident {
-                        value: "json_build_object".to_string(),
+                        value: JSON_BUILD_OBJECT.to_string(),
                         quote_style: None,
                     }]),
                     args: projection,
@@ -526,22 +529,22 @@ fn get_join<'a, T: Text<'a>>(
             left: Box::new(Expr::CompoundIdentifier(vec![
                 Ident {
                     value: relation.clone(),
-                    quote_style: Some('"'),
+                    quote_style: Some(QUOTE_CHAR),
                 },
                 Ident {
                     value: fk,
-                    quote_style: Some('"'),
+                    quote_style: Some(QUOTE_CHAR),
                 },
             ])),
             op: BinaryOperator::Eq,
             right: Box::new(Expr::CompoundIdentifier(vec![
                 Ident {
                     value: path.map_or("base".to_string(), |v| v.to_string()),
-                    quote_style: Some('"'),
+                    quote_style: Some(QUOTE_CHAR),
                 },
                 Ident {
                     value: pk,
-                    quote_style: Some('"'),
+                    quote_style: Some(QUOTE_CHAR),
                 },
             ])),
         })
@@ -576,7 +579,7 @@ fn get_join<'a, T: Text<'a>>(
                             alias: Some(TableAlias {
                                 name: Ident {
                                     value: sub_path,
-                                    quote_style: Some('"'),
+                                    quote_style: Some(QUOTE_CHAR),
                                 },
                                 columns: vec![],
                             }),
@@ -597,7 +600,7 @@ fn get_join<'a, T: Text<'a>>(
             alias: Some(TableAlias {
                 name: Ident {
                     value: "root.".to_owned() + &relation,
-                    quote_style: Some('"'),
+                    quote_style: Some(QUOTE_CHAR),
                 },
                 columns: vec![],
             }),
@@ -638,7 +641,7 @@ fn get_static<'a, T: Text<'a>>(
                 expr: Expr::Value(Value::SingleQuotedString(value)),
                 alias: Ident {
                     value: name.as_ref().to_string(),
-                    quote_style: Some('"'),
+                    quote_style: Some(QUOTE_CHAR),
                 },
             });
         }
@@ -670,7 +673,7 @@ fn get_projection<'a, T: Text<'a>>(
                     joins.push(join);
                     projection.push(SelectItem::UnnamedExpr(Expr::Identifier(Ident {
                         value: field.name.as_ref().into(),
-                        quote_style: Some('"'),
+                        quote_style: Some(QUOTE_CHAR),
                     })));
                 } else {
                     if let Some(value) = get_static(&field.name, &field.directives) {
@@ -684,25 +687,25 @@ fn get_projection<'a, T: Text<'a>>(
                                     || {
                                         Expr::Identifier(Ident {
                                             value: field.name.as_ref().into(),
-                                            quote_style: Some('"'),
+                                            quote_style: Some(QUOTE_CHAR),
                                         })
                                     },
                                     |path| {
                                         Expr::CompoundIdentifier(vec![
                                             Ident {
                                                 value: path.to_string(),
-                                                quote_style: Some('"'),
+                                                quote_style: Some(QUOTE_CHAR),
                                             },
                                             Ident {
                                                 value: field.name.as_ref().into(),
-                                                quote_style: Some('"'),
+                                                quote_style: Some(QUOTE_CHAR),
                                             },
                                         ])
                                     },
                                 ),
                                 alias: Ident {
                                     value: alias.as_ref().into(),
-                                    quote_style: Some('"'),
+                                    quote_style: Some(QUOTE_CHAR),
                                 },
                             });
                         }
@@ -712,7 +715,7 @@ fn get_projection<'a, T: Text<'a>>(
                                 projection.push(SelectItem::ExprWithAlias {
                                     alias: Ident {
                                         value: name,
-                                        quote_style: Some('"'),
+                                        quote_style: Some(QUOTE_CHAR),
                                     },
                                     expr: Expr::Value(Value::SingleQuotedString(
                                         relation.to_string(),
@@ -723,18 +726,18 @@ fn get_projection<'a, T: Text<'a>>(
                                     || {
                                         Expr::Identifier(Ident {
                                             value: name.clone(),
-                                            quote_style: Some('"'),
+                                            quote_style: Some(QUOTE_CHAR),
                                         })
                                     },
                                     |path| {
                                         Expr::CompoundIdentifier(vec![
                                             Ident {
                                                 value: path.to_string(),
-                                                quote_style: Some('"'),
+                                                quote_style: Some(QUOTE_CHAR),
                                             },
                                             Ident {
                                                 value: name.clone(),
-                                                quote_style: Some('"'),
+                                                quote_style: Some(QUOTE_CHAR),
                                             },
                                         ])
                                     },
@@ -761,13 +764,13 @@ fn get_projection<'a, T: Text<'a>>(
                     merges.push(Merge {
                         expr: Expr::Function(Function {
                             name: ObjectName(vec![Ident {
-                                value: "to_jsonb".to_string(),
+                                value: TO_JSONB.to_string(),
                                 quote_style: None,
                             }]),
                             args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
                                 Expr::Identifier(Ident {
                                     value: name.as_ref().into(),
-                                    quote_style: Some('"'),
+                                    quote_style: Some(QUOTE_CHAR),
                                 }),
                             ))],
                             over: None,
@@ -777,11 +780,11 @@ fn get_projection<'a, T: Text<'a>>(
                         condition: Expr::IsNotNull(Box::new(Expr::CompoundIdentifier(vec![
                             Ident {
                                 value: "root.".to_string() + &relation,
-                                quote_style: Some('"'),
+                                quote_style: Some(QUOTE_CHAR),
                             },
                             Ident {
                                 value: relation.to_string(),
-                                quote_style: Some('"'),
+                                quote_style: Some(QUOTE_CHAR),
                             },
                         ]))),
                     })
@@ -874,7 +877,7 @@ fn get_filter_query(
                 relation: TableFactor::Table {
                     name: ObjectName(vec![Ident {
                         value: table_name,
-                        quote_style: Some('"'),
+                        quote_style: Some(QUOTE_CHAR),
                     }]),
                     alias: None,
                     args: None,
@@ -905,7 +908,7 @@ fn get_order<'a, T: Text<'a>>(order: &BTreeMap<T::Value, GqlValue<'a, T>>) -> Ve
         order_by.push(OrderByExpr {
             expr: Expr::Identifier(Ident {
                 value: key.as_ref().into(),
-                quote_style: Some('"'),
+                quote_style: Some(QUOTE_CHAR),
             }),
             asc: match value {
                 GqlValue::String(s) => Some(s == "ASC"),
@@ -973,7 +976,7 @@ fn get_mutation_columns<'a, T: Text<'a>>(
                 for (key, value) in data.iter() {
                     columns.push(Ident {
                         value: key.as_ref().into(),
-                        quote_style: Some('"'),
+                        quote_style: Some(QUOTE_CHAR),
                     });
                     row.push(Expr::Value(get_value(value, parameters)));
                 }
@@ -990,7 +993,7 @@ fn get_mutation_columns<'a, T: Text<'a>>(
                             if i == 0 {
                                 columns.push(Ident {
                                     value: key.as_ref().into(),
-                                    quote_style: Some('"'),
+                                    quote_style: Some(QUOTE_CHAR),
                                 });
                             }
                             row.push(Expr::Value(get_value(value, parameters)));
@@ -1022,7 +1025,7 @@ fn get_mutation_assignments<'a, T: Text<'a>>(
                     assignments.push(Assignment {
                         id: vec![Ident {
                             value: key.as_ref().into(),
-                            quote_style: Some('"'),
+                            quote_style: Some(QUOTE_CHAR),
                         }],
                         value: Expr::Value(get_value(value, parameters)),
                     });
@@ -1032,7 +1035,7 @@ fn get_mutation_assignments<'a, T: Text<'a>>(
                 for (key, value) in data.iter() {
                     let column_ident = Ident {
                         value: key.as_ref().into(),
-                        quote_style: Some('"'),
+                        quote_style: Some(QUOTE_CHAR),
                     };
                     assignments.push(Assignment {
                         id: vec![column_ident.clone()],
@@ -1125,7 +1128,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                                         alias: Some(TableAlias {
                                                             name: Ident {
                                                                 value: "base".to_string(),
-                                                                quote_style: Some('"'),
+                                                                quote_style: Some(QUOTE_CHAR),
                                                             },
                                                             columns: vec![],
                                                         }),
@@ -1173,7 +1176,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                                 alias: Some(TableAlias {
                                                     name: Ident {
                                                         value: "base".to_string(),
-                                                        quote_style: Some('"'),
+                                                        quote_style: Some(QUOTE_CHAR),
                                                     },
                                                     columns: vec![],
                                                 }),
@@ -1183,7 +1186,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         None,
                                         merges,
                                         is_single,
-                                        &"root",
+                                        &ROOT_LABEL,
                                     );
                                     statements.push((
                                         key,
@@ -1211,12 +1214,12 @@ pub fn gql2sql<'a, T: Text<'a>>(
                             into: None,
                             projection: vec![SelectItem::ExprWithAlias {
                                 alias: Ident {
-                                    value: "data".into(),
-                                    quote_style: Some('"'),
+                                    value: DATA_LABEL.into(),
+                                    quote_style: Some(QUOTE_CHAR),
                                 },
                                 expr: Expr::Function(Function {
                                     name: ObjectName(vec![Ident {
-                                        value: "json_build_object".to_string(),
+                                        value: JSON_BUILD_OBJECT.to_string(),
                                         quote_style: None,
                                     }]),
                                     args: statements
@@ -1283,7 +1286,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                             into: true,
                                             table_name: ObjectName(vec![Ident {
                                                 value: name.to_string(),
-                                                quote_style: Some('"'),
+                                                quote_style: Some(QUOTE_CHAR),
                                             }]),
                                             columns,
                                             overwrite: false,
@@ -1323,7 +1326,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                                 relation: TableFactor::Table {
                                                     name: ObjectName(vec![Ident {
                                                         value: name.to_string(),
-                                                        quote_style: Some('"'),
+                                                        quote_style: Some(QUOTE_CHAR),
                                                     }]),
                                                     alias: None,
                                                     args: None,
