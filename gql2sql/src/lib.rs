@@ -1,6 +1,8 @@
 use anyhow::anyhow;
-use graphql_parser::query::{Definition, Document, Field, OperationDefinition, Selection};
-use graphql_parser::schema::{Text, Type, Value as GqlValue};
+use graphql_parser::query::{
+    Definition, Document, Field, OperationDefinition, Selection, TypeCondition,
+};
+use graphql_parser::schema::{Directive, Text, Type, Value as GqlValue};
 use sqlparser::ast::{
     Assignment, BinaryOperator, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
     Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
@@ -252,12 +254,13 @@ fn get_root_query<'a, T: Text<'a>>(
     projection: Vec<SelectItem>,
     from: Vec<TableWithJoins>,
     selection: Option<Expr>,
+    merges: Vec<Merge>,
     is_single: bool,
     alias: &T::Value,
 ) -> SetExpr {
     let mut base = Expr::Function(Function {
         name: ObjectName(vec![Ident {
-            value: "row_to_json".to_string(),
+            value: "to_json".to_string(),
             quote_style: None,
         }]),
         args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(
@@ -327,34 +330,33 @@ fn get_root_query<'a, T: Text<'a>>(
         distinct: false,
         special: false,
     });
-    if true {
-        let merged = Expr::Function(Function {
-            name: ObjectName(vec![Ident {
-                value: "row_to_json".to_string(),
-                quote_style: None,
-            }]),
-            args: vec![],
-            over: None,
-            distinct: false,
-            special: false,
-        });
+    if !merges.is_empty() {
         base = Expr::BinaryOp {
-            left: Box::new(base),
+            left: Box::new(Expr::Cast {
+                expr: Box::new(base),
+                data_type: DataType::Custom(
+                    ObjectName(vec![Ident {
+                        value: "jsonb".to_string(),
+                        quote_style: None,
+                    }]),
+                    vec![],
+                ),
+            }),
             op: BinaryOperator::StringConcat,
             right: Box::new(Expr::Case {
                 operand: None,
-                conditions: vec![Expr::IsNotNull(Box::new(Expr::CompoundIdentifier(vec![
-                    Ident {
-                        value: "root".to_string(),
-                        quote_style: Some('"'),
-                    },
-                    Ident {
-                        value: "merged".to_string(),
-                        quote_style: Some('"'),
-                    },
-                ])))],
-                results: vec![merged],
-                else_result: Some(Box::new(Expr::Value(Value::Null))),
+                conditions: merges.iter().map(|m| m.condition.clone()).collect(),
+                results: merges.iter().map(|m| m.expr.clone()).collect(),
+                else_result: Some(Box::new(Expr::Function(Function {
+                    name: ObjectName(vec![Ident {
+                        value: "jsonb_build_object".to_string(),
+                        quote_style: None,
+                    }]),
+                    args: vec![],
+                    over: None,
+                    distinct: false,
+                    special: false,
+                }))),
             }),
         };
     }
@@ -506,121 +508,178 @@ fn get_aggregate_projection<'a, T: Text<'a>>(
     aggs
 }
 
-fn get_projection<'a, T: Text<'a>>(
-    items: &Vec<Selection<'a, T>>,
-    relation: &str,
+fn get_join<'a, T: Text<'a>>(
+    arguments: &Vec<(T::Value, GqlValue<'a, T>)>,
+    directives: &Vec<Directive<'a, T>>,
+    selection_items: &Vec<Selection<'a, T>>,
     path: Option<&str>,
+    name: &T::Value,
     parameters: &BTreeMap<String, (usize, DataType)>,
-) -> (Vec<SelectItem>, Vec<Join>) {
-    let mut projection = Vec::new();
-    let mut joins = Vec::new();
-    for selection in items {
-        match selection {
-            Selection::Field(field) => {
-                if !field.selection_set.items.is_empty() {
-                    let (selection, order_by, mut first, after) =
-                        parse_args(&field.arguments, parameters);
-                    let (relation, fks, pks, is_single) = get_relation(field);
-                    if is_single {
-                        first = Some(Expr::Value(Value::Number("1".to_string(), false)));
-                    }
-                    let sub_path =
-                        path.map_or_else(|| relation.clone(), |v| v.to_string() + "." + &relation);
-                    let (sub_projection, sub_joins) = get_projection(
-                        &field.selection_set.items,
-                        &relation,
-                        Some(&sub_path),
-                        parameters,
-                    );
-                    let join_filter = zip(pks, fks)
-                        .map(|(pk, fk)| Expr::BinaryOp {
-                            left: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident {
-                                    value: relation.clone(),
-                                    quote_style: Some('"'),
-                                },
-                                Ident {
-                                    value: fk.clone(),
-                                    quote_style: Some('"'),
-                                },
-                            ])),
-                            op: BinaryOperator::Eq,
-                            right: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident {
-                                    value: path.map_or("base".to_string(), |v| v.to_string()),
-                                    quote_style: Some('"'),
-                                },
-                                Ident {
-                                    value: pk.clone(),
-                                    quote_style: Some('"'),
-                                },
-                            ])),
-                        })
-                        .reduce(|acc, expr| Expr::BinaryOp {
-                            left: Box::new(acc),
-                            op: BinaryOperator::And,
-                            right: Box::new(expr),
-                        })
-                        .unwrap_or(Expr::Value(Value::Boolean(true)));
-                    let sub_query = get_filter_query(
-                        Some(selection.map_or(join_filter.clone(), |s| Expr::BinaryOp {
-                            left: Box::new(join_filter),
-                            op: BinaryOperator::And,
-                            right: Box::new(s),
-                        })),
-                        order_by,
-                        first,
-                        after,
-                        relation.clone(),
-                    );
-                    joins.push(Join {
+) -> Join {
+    let (selection, order_by, mut first, after) = parse_args(arguments, parameters);
+    let (relation, fks, pks, is_single) = get_relation(directives);
+    if is_single {
+        first = Some(Expr::Value(Value::Number("1".to_string(), false)));
+    }
+    let sub_path = path.map_or_else(|| relation.clone(), |v| v.to_string() + "." + &relation);
+    let (sub_projection, sub_joins, merges) =
+        get_projection(selection_items, &relation, Some(&sub_path), parameters);
+    let join_filter = zip(pks, fks)
+        .map(|(pk, fk)| Expr::BinaryOp {
+            left: Box::new(Expr::CompoundIdentifier(vec![
+                Ident {
+                    value: relation.clone(),
+                    quote_style: Some('"'),
+                },
+                Ident {
+                    value: fk.clone(),
+                    quote_style: Some('"'),
+                },
+            ])),
+            op: BinaryOperator::Eq,
+            right: Box::new(Expr::CompoundIdentifier(vec![
+                Ident {
+                    value: path.map_or("base".to_string(), |v| v.to_string()),
+                    quote_style: Some('"'),
+                },
+                Ident {
+                    value: pk.clone(),
+                    quote_style: Some('"'),
+                },
+            ])),
+        })
+        .reduce(|acc, expr| Expr::BinaryOp {
+            left: Box::new(acc),
+            op: BinaryOperator::And,
+            right: Box::new(expr),
+        })
+        .unwrap_or(Expr::Value(Value::Boolean(true)));
+    let sub_query = get_filter_query(
+        Some(selection.map_or(join_filter.clone(), |s| Expr::BinaryOp {
+            left: Box::new(join_filter),
+            op: BinaryOperator::And,
+            right: Box::new(s),
+        })),
+        order_by,
+        first,
+        after,
+        relation.clone(),
+    );
+    Join {
+        relation: TableFactor::Derived {
+            lateral: true,
+            subquery: Box::new(Query {
+                with: None,
+                body: Box::new(get_root_query::<T>(
+                    sub_projection,
+                    vec![TableWithJoins {
                         relation: TableFactor::Derived {
-                            lateral: true,
-                            subquery: Box::new(Query {
-                                with: None,
-                                body: Box::new(get_root_query::<T>(
-                                    sub_projection,
-                                    vec![TableWithJoins {
-                                        relation: TableFactor::Derived {
-                                            lateral: false,
-                                            subquery: Box::new(sub_query),
-                                            alias: Some(TableAlias {
-                                                name: Ident {
-                                                    value: sub_path.clone(),
-                                                    quote_style: Some('"'),
-                                                },
-                                                columns: vec![],
-                                            }),
-                                        },
-                                        joins: sub_joins,
-                                    }],
-                                    None,
-                                    is_single,
-                                    &field.name,
-                                )),
-                                order_by: vec![],
-                                limit: None,
-                                offset: None,
-                                fetch: None,
-                                locks: vec![],
-                            }),
+                            lateral: false,
+                            subquery: Box::new(sub_query),
                             alias: Some(TableAlias {
                                 name: Ident {
-                                    value: "root.".to_owned() + &relation,
+                                    value: sub_path.clone(),
                                     quote_style: Some('"'),
                                 },
                                 columns: vec![],
                             }),
                         },
-                        join_operator: JoinOperator::LeftOuter(JoinConstraint::On(Expr::Nested(
-                            Box::new(Expr::Value(Value::SingleQuotedString("true".to_string()))),
-                        ))),
-                    });
+                        joins: sub_joins,
+                    }],
+                    None,
+                    merges,
+                    is_single,
+                    name,
+                )),
+                order_by: vec![],
+                limit: None,
+                offset: None,
+                fetch: None,
+                locks: vec![],
+            }),
+            alias: Some(TableAlias {
+                name: Ident {
+                    value: "root.".to_owned() + &relation,
+                    quote_style: Some('"'),
+                },
+                columns: vec![],
+            }),
+        },
+        join_operator: JoinOperator::LeftOuter(JoinConstraint::On(Expr::Nested(Box::new(
+            Expr::Value(Value::SingleQuotedString("true".to_string())),
+        )))),
+    }
+}
+
+struct Merge {
+    condition: Expr,
+    expr: Expr,
+}
+
+fn get_static<'a, T: Text<'a>>(
+    name: &T::Value,
+    directives: &Vec<Directive<'a, T>>,
+) -> Option<SelectItem> {
+    for directive in directives {
+        let directive_name: &str = directive.name.as_ref();
+        if directive_name == "static" {
+            let value = directive
+                .arguments
+                .iter()
+                .find(|(name, _)| name.as_ref() == "value")
+                .map(|(_, value)| match value {
+                    GqlValue::String(value) => value.to_string(),
+                    GqlValue::Int(value) => {
+                        value.as_i64().expect("value is not an int").to_string()
+                    }
+                    GqlValue::Float(value) => value.to_string(),
+                    GqlValue::Boolean(value) => value.to_string(),
+                    _ => unreachable!(),
+                })
+                .unwrap_or("".to_string());
+            return Some(SelectItem::ExprWithAlias {
+                expr: Expr::Value(Value::SingleQuotedString(value)),
+                alias: Ident {
+                    value: name.as_ref().to_string(),
+                    quote_style: Some('"'),
+                },
+            });
+        }
+    }
+    None
+}
+
+fn get_projection<'a, T: Text<'a>>(
+    items: &Vec<Selection<'a, T>>,
+    relation: &str,
+    path: Option<&str>,
+    parameters: &BTreeMap<String, (usize, DataType)>,
+) -> (Vec<SelectItem>, Vec<Join>, Vec<Merge>) {
+    let mut projection = Vec::new();
+    let mut joins = Vec::new();
+    let mut merges = Vec::new();
+    for selection in items {
+        match selection {
+            Selection::Field(field) => {
+                if !field.selection_set.items.is_empty() {
+                    let join = get_join(
+                        &field.arguments,
+                        &field.directives,
+                        &field.selection_set.items,
+                        path,
+                        &field.name,
+                        parameters,
+                    );
+                    joins.push(join);
                     projection.push(SelectItem::UnnamedExpr(Expr::Identifier(Ident {
                         value: field.name.as_ref().into(),
                         quote_style: Some('"'),
                     })));
                 } else {
+                    if let Some(value) = get_static(&field.name, &field.directives) {
+                        projection.push(value);
+                        continue;
+                    }
                     match &field.alias {
                         Some(alias) => {
                             projection.push(SelectItem::ExprWithAlias {
@@ -691,12 +750,50 @@ fn get_projection<'a, T: Text<'a>>(
             Selection::InlineFragment(frag) => {
                 if let Some(type_condition) = &frag.type_condition {
                     println!("found frag");
+                    let TypeCondition::On(name) = type_condition;
+                    let (relation, _fks, _pks, _is_single) = get_relation(&frag.directives);
+                    let join = get_join(
+                        &vec![],
+                        &frag.directives,
+                        &frag.selection_set.items,
+                        path,
+                        name,
+                        parameters,
+                    );
+                    joins.push(join);
+                    merges.push(Merge {
+                        expr: Expr::Function(Function {
+                            name: ObjectName(vec![Ident {
+                                value: "to_jsonb".to_string(),
+                                quote_style: None,
+                            }]),
+                            args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                Expr::Identifier(Ident {
+                                    value: name.as_ref().into(),
+                                    quote_style: Some('"'),
+                                }),
+                            ))],
+                            over: None,
+                            distinct: false,
+                            special: false,
+                        }),
+                        condition: Expr::IsNotNull(Box::new(Expr::CompoundIdentifier(vec![
+                            Ident {
+                                value: "root.".to_string() + &relation,
+                                quote_style: Some('"'),
+                            },
+                            Ident {
+                                value: relation.to_string(),
+                                quote_style: Some('"'),
+                            },
+                        ]))),
+                    })
                 }
             }
             Selection::FragmentSpread(_) => unimplemented!(),
         }
     }
-    (projection, joins)
+    (projection, joins, merges)
 }
 
 fn value_to_string<'a, T: Text<'a>>(value: &GqlValue<'a, T>) -> String {
@@ -716,12 +813,14 @@ fn value_to_string<'a, T: Text<'a>>(value: &GqlValue<'a, T>) -> String {
     }
 }
 
-fn get_relation<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, Vec<String>, Vec<String>, bool) {
-    let mut relation: String = field.name.as_ref().into();
+fn get_relation<'a, T: Text<'a>>(
+    directives: &Vec<Directive<'a, T>>,
+) -> (String, Vec<String>, Vec<String>, bool) {
+    let mut relation: String = "".to_string();
     let mut fk = vec![];
     let mut pk = vec![];
     let mut is_single = false;
-    for directive in &field.directives {
+    for directive in directives {
         let name: &str = directive.name.as_ref();
         if name == "relation" {
             for argument in &directive.arguments {
@@ -1055,7 +1154,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         )));
                                         is_single = true;
                                     }
-                                    let (projection, joins) = get_projection(
+                                    let (projection, joins, merges) = get_projection(
                                         &field.selection_set.items,
                                         name,
                                         Some("base"),
@@ -1068,7 +1167,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         after,
                                         name.to_owned(),
                                     );
-                                    let mut root_query = get_root_query::<&str>(
+                                    let root_query = get_root_query::<&str>(
                                         projection,
                                         vec![TableWithJoins {
                                             relation: TableFactor::Derived {
@@ -1085,6 +1184,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                             joins,
                                         }],
                                         None,
+                                        merges,
                                         is_single,
                                         &"root",
                                     );
@@ -1175,7 +1275,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     name = &name[7..];
                                     let (columns, rows) =
                                         get_mutation_columns(&field.arguments, &parameters);
-                                    let (projection, _) = get_projection(
+                                    let (projection, _, _) = get_projection(
                                         &field.selection_set.items,
                                         name,
                                         None,
@@ -1213,7 +1313,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     ));
                                 } else if name.starts_with("update_") {
                                     name = &name[7..];
-                                    let (projection, _) = get_projection(
+                                    let (projection, _, _) = get_projection(
                                         &field.selection_set.items,
                                         name,
                                         None,
@@ -1292,7 +1392,7 @@ mod tests {
                 }
             }"#,
         )?.clone();
-        let sql = r#"SELECT json_build_object('app', (SELECT coalesce(json_agg(row_to_json((SELECT "root" FROM (SELECT "base"."id", "components") AS "root"))), '[]') AS "root" FROM (SELECT * FROM "App" WHERE "id" = '345810043118026832' ORDER BY "name" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(row_to_json((SELECT "root" FROM (SELECT "base.Component"."id", "pageMeta", "elements") AS "root"))), '[]') AS "components" FROM (SELECT * FROM "Component" WHERE "Component"."appId" = "base"."id") AS "base.Component" LEFT JOIN LATERAL (SELECT row_to_json((SELECT "root" FROM (SELECT "base.Component.PageMeta"."id", "base.Component.PageMeta"."path") AS "root")) AS "pageMeta" FROM (SELECT * FROM "PageMeta" WHERE "PageMeta"."componentId" = "base.Component"."id" LIMIT 1) AS "base.Component.PageMeta") AS "root.PageMeta" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(row_to_json((SELECT "root" FROM (SELECT "base.Component.Element"."id", "base.Component.Element"."name") AS "root"))), '[]') AS "elements" FROM (SELECT * FROM "Element" WHERE "Element"."componentParentId" = "base.Component"."id" ORDER BY "order" ASC) AS "base.Component.Element") AS "root.Element" ON ('true')) AS "root.Component" ON ('true')), 'Component_aggregate', (SELECT json_build_object('count', COUNT(*), 'min', json_build_object('createdAt', MIN("createdAt"))) AS "root" FROM (SELECT * FROM "Component" WHERE "appId" = '345810043118026832') AS "base")) AS "data""#;
+        let sql = r#"SELECT json_build_object('app', (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base"."id", "components") AS "root"))), '[]') AS "root" FROM (SELECT * FROM "App" WHERE "id" = '345810043118026832' ORDER BY "name" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component"."id", "pageMeta", "elements") AS "root"))), '[]') AS "components" FROM (SELECT * FROM "Component" WHERE "Component"."appId" = "base"."id") AS "base.Component" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.Component.PageMeta"."id", "base.Component.PageMeta"."path") AS "root")) AS "pageMeta" FROM (SELECT * FROM "PageMeta" WHERE "PageMeta"."componentId" = "base.Component"."id" LIMIT 1) AS "base.Component.PageMeta") AS "root.PageMeta" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component.Element"."id", "base.Component.Element"."name") AS "root"))), '[]') AS "elements" FROM (SELECT * FROM "Element" WHERE "Element"."componentParentId" = "base.Component"."id" ORDER BY "order" ASC) AS "base.Component.Element") AS "root.Element" ON ('true')) AS "root.Component" ON ('true')), 'Component_aggregate', (SELECT json_build_object('count', COUNT(*), 'min', json_build_object('createdAt', MIN("createdAt"))) AS "root" FROM (SELECT * FROM "Component" WHERE "appId" = '345810043118026832') AS "base")) AS "data""#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql).unwrap();
         let (statement, _params) = gql2sql(gqlast)?;
@@ -1381,7 +1481,7 @@ mod tests {
           ) {
           id
           branch
-          pageMeta
+          ... on PageMeta
             @relation(
               table: "PageMeta"
               field: ["componentId", "branch"]
@@ -1399,7 +1499,7 @@ mod tests {
             sMaxAge
             staleWhileRevalidate
           }
-          componentMeta
+          ... on ComponentMeta
             @relation(
               table: "ComponentMeta"
               field: ["componentId", "branch"]
@@ -1576,14 +1676,35 @@ mod tests {
                         references: ["id", "branch"]
                         single: true
                     ) {
-                     name
+                     title
                    }
                 }
             }"#,
         )?
         .clone();
-        println!("ast {:#?}", gqlast);
-        let sql = r#"SELECT json_build_object('component', (SELECT row_to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root")) || CASE WHEN pm."instanceId" IS NOT NULL THEN row_to_json('title', 'title') ELSE NULL END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base")) AS "data""#;
+        // println!("ast {:#?}", gqlast);
+        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root"))::jsonb || CASE WHEN "root.ComponentMeta"."ComponentMeta" IS NOT NULL THEN to_jsonb("ComponentMeta") ELSE jsonb_build_object() END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.ComponentMeta"."title") AS "root")) AS "ComponentMeta" FROM (SELECT * FROM "ComponentMeta" WHERE "ComponentMeta"."componentId" = "base"."id" AND "ComponentMeta"."branch" = "base"."branch" LIMIT 1) AS "base.ComponentMeta") AS "root.ComponentMeta" ON ('true'))) AS "data""#;
+        let dialect = PostgreSqlDialect {};
+        let sqlast = Parser::parse_sql(&dialect, sql)?;
+        let (statement, params) = gql2sql(gqlast)?;
+        println!("Statements:\n'{}'", statement.to_string());
+        assert_eq!(vec![statement], sqlast);
+        Ok(())
+    }
+
+    #[test]
+    fn query_static() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query::<&str>(
+            r#"query GetApp($componentId: String!) {
+                component: Component_one(filter: { id : { eq: $componentId } }) {
+                   id
+                   branch
+                   kind @static(value: "page")
+                }
+            }"#,
+        )?
+        .clone();
+        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind") AS "root")) AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base")) AS "data""#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, params) = gql2sql(gqlast)?;
