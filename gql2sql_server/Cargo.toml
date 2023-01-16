@@ -17,7 +17,7 @@ dotenv_codegen = "0.15.0"
 futures = "0.3.25"
 jemallocator = "0.5.0"
 axum = { version = "0.6.2", features = ["headers"] }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.24", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "any", "postgres"] }
