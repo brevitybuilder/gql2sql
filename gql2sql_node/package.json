@@ -105,18 +105,18 @@
   },
   "packageManager": "yarn@3.3.1",
   "optionalDependencies": {
-    "@brevity-builder/gql2sql-android-arm-eabi": "0.4.1",
-    "@brevity-builder/gql2sql-android-arm64": "0.4.1",
-    "@brevity-builder/gql2sql-darwin-arm64": "0.4.1",
-    "@brevity-builder/gql2sql-darwin-x64": "0.4.1",
-    "@brevity-builder/gql2sql-freebsd-x64": "0.4.1",
-    "@brevity-builder/gql2sql-linux-arm-gnueabihf": "0.4.1",
-    "@brevity-builder/gql2sql-linux-arm64-gnu": "0.4.1",
-    "@brevity-builder/gql2sql-linux-arm64-musl": "0.4.1",
-    "@brevity-builder/gql2sql-linux-x64-gnu": "0.4.1",
-    "@brevity-builder/gql2sql-linux-x64-musl": "0.4.1",
-    "@brevity-builder/gql2sql-win32-arm64-msvc": "0.4.1",
-    "@brevity-builder/gql2sql-win32-ia32-msvc": "0.4.1",
-    "@brevity-builder/gql2sql-win32-x64-msvc": "0.4.1"
+    "@brevity-builder/gql2sql-win32-x64-msvc": "0.5.1",
+    "@brevity-builder/gql2sql-darwin-x64": "0.5.1",
+    "@brevity-builder/gql2sql-linux-x64-gnu": "0.5.1",
+    "@brevity-builder/gql2sql-linux-x64-musl": "0.5.1",
+    "@brevity-builder/gql2sql-linux-arm64-gnu": "0.5.1",
+    "@brevity-builder/gql2sql-win32-ia32-msvc": "0.5.1",
+    "@brevity-builder/gql2sql-linux-arm-gnueabihf": "0.5.1",
+    "@brevity-builder/gql2sql-darwin-arm64": "0.5.1",
+    "@brevity-builder/gql2sql-android-arm64": "0.5.1",
+    "@brevity-builder/gql2sql-freebsd-x64": "0.5.1",
+    "@brevity-builder/gql2sql-linux-arm64-musl": "0.5.1",
+    "@brevity-builder/gql2sql-win32-arm64-msvc": "0.5.1",
+    "@brevity-builder/gql2sql-android-arm-eabi": "0.5.1"
   }
 }
