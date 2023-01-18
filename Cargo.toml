@@ -7,5 +7,6 @@ members = [
     "gql2sql_node",
     "gql2sql_lambda",
     "gql2sql_worker",
+    "gql2sql_deno",
     "cache_tags",
 ]

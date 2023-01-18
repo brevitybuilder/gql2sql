@@ -33,7 +33,7 @@ query App {
 `
 
 async function run() {
-  const buf = new TextEncoder().encode(query);
+  const buf = new TextEncoder().encode(query)
   await b.suite(
     'graphql',
     b.add('Native parse and convert and print', () => {
