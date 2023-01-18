@@ -18,6 +18,5 @@ git add .
 git commit -m "$(< version.txt)"
 git tag -a "v$(< version.txt)" -m "$(< version.txt)"
 git push origin main --tags
-gh release create "v$(< version.txt)" --latest
 
 rm version.txt

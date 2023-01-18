@@ -1,0 +1,15 @@
+[package]
+name = "gql2sql_deno"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "gql2sql"
+crate-type = ["cdylib"]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+gql2sql = { path = "../gql2sql" }
+graphql-parser = "0.4"
+deno_bindgen = "0.7.0"
+serde = { version = "1", features = ["derive"] }
