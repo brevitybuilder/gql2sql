@@ -749,7 +749,6 @@ fn get_projection<'a, T: Text<'a>>(
             }
             Selection::InlineFragment(frag) => {
                 if let Some(type_condition) = &frag.type_condition {
-                    println!("found frag");
                     let TypeCondition::On(name) = type_condition;
                     let (relation, _fks, _pks, _is_single) = get_relation(&frag.directives);
                     let join = get_join(
