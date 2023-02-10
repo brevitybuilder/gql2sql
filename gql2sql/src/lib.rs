@@ -7,10 +7,10 @@ use graphql_parser::query::{
 };
 use graphql_parser::schema::{Directive, Text, Type, Value as GqlValue};
 use sqlparser::ast::{
-    Assignment, BinaryOperator, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
-    Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
-    SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
-    WildcardAdditionalOptions,
+    Assignment, BinaryOperator, DataType, Expr, Function, FunctionArg,
+    FunctionArgExpr, Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows,
+    OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, TableAlias, TableFactor,
+    TableWithJoins, Value, Values, WildcardAdditionalOptions,
 };
 use std::collections::BTreeMap;
 use std::iter::zip;
@@ -21,9 +21,7 @@ fn get_value<'a, T: Text<'a>>(
 ) -> Value {
     match value {
         GqlValue::Variable(v) => {
-            let (index, _data_type) = parameters
-                .get(v.as_ref())
-                .expect("variable not found");
+            let (index, _data_type) = parameters.get(v.as_ref()).expect("variable not found");
             Value::Placeholder(format!("${}", index))
         }
         GqlValue::Null => Value::Null,
@@ -115,6 +113,74 @@ fn get_expr<'a, T: Text<'a>>(
     None
 }
 
+fn handle_filter_arg<'a, T: Text<'a>>(
+    key: &<T as Text<'a>>::Value,
+    value: &GqlValue<'a, T>,
+    parameters: &BTreeMap<String, (usize, DataType)>,
+) -> Option<Expr> {
+    match (key.as_ref(), value) {
+        ("OR" | "or", GqlValue::List(list)) => match list.len() {
+            0 => None,
+            1 => match list.get(0).expect("list to have one item") {
+                GqlValue::Object(o) => get_filter(o, parameters),
+                _ => None,
+            },
+            _ => {
+                let mut conditions: Vec<Expr> = list
+                    .iter()
+                    .filter_map(|v| match v {
+                        GqlValue::Object(o) => get_filter(o, parameters),
+                        _ => None,
+                    })
+                    .collect();
+                let mut last_expr = conditions.remove(0);
+                for condition in conditions {
+                    let expr = Expr::BinaryOp {
+                        left: Box::new(last_expr),
+                        op: BinaryOperator::Or,
+                        right: Box::new(condition),
+                    };
+                    last_expr = expr;
+                }
+                Some(Expr::Nested(Box::new(last_expr)))
+            }
+        },
+        ("and", GqlValue::List(list)) => match list.len() {
+            0 => None,
+            1 => match list.get(0).expect("list to have one item") {
+                GqlValue::Object(o) => get_filter(o, parameters),
+                _ => None,
+            },
+            _ => {
+                let mut conditions: Vec<Expr> = list
+                    .iter()
+                    .filter_map(|v| match v {
+                        GqlValue::Object(o) => get_filter(o, parameters),
+                        _ => None,
+                    })
+                    .collect();
+                let mut last_expr = conditions.remove(0);
+                for condition in conditions {
+                    let expr = Expr::BinaryOp {
+                        left: Box::new(condition),
+                        op: BinaryOperator::And,
+                        right: Box::new(last_expr),
+                    };
+                    last_expr = expr;
+                }
+                Some(last_expr)
+            }
+        },
+        _ => {
+            let left = Expr::Identifier(Ident {
+                value: key.as_ref().to_owned(),
+                quote_style: Some(QUOTE_CHAR),
+            });
+            get_expr(left, value, parameters)
+        }
+    }
+}
+
 fn get_filter<'a, T: Text<'a>>(
     args: &BTreeMap<T::Value, GqlValue<'a, T>>,
     parameters: &BTreeMap<String, (usize, DataType)>,
@@ -123,83 +189,17 @@ fn get_filter<'a, T: Text<'a>>(
         0 => None,
         1 => {
             let (key, value) = args.iter().next().expect("list to have one item");
-            match (key.as_ref(), value) {
-                ("or", GqlValue::List(list)) => match list.len() {
-                    0 => None,
-                    1 => match list.get(0).expect("list to have one item") {
-                        GqlValue::Object(o) => get_filter(o, parameters),
-                        _ => None,
-                    },
-                    _ => {
-                        let mut conditions: Vec<Expr> = list
-                            .iter()
-                            .filter_map(|v| match v {
-                                GqlValue::Object(o) => get_filter(o, parameters),
-                                _ => None,
-                            })
-                            .collect();
-                        let mut last_expr = conditions.remove(0);
-                        for condition in conditions {
-                            let expr = Expr::BinaryOp {
-                                left: Box::new(condition),
-                                op: BinaryOperator::Or,
-                                right: Box::new(last_expr),
-                            };
-                            last_expr = expr;
-                        }
-                        Some(last_expr)
-                    }
-                },
-                ("and", GqlValue::List(list)) => match list.len() {
-                    0 => None,
-                    1 => match list.get(0).expect("list to have one item") {
-                        GqlValue::Object(o) => get_filter(o, parameters),
-                        _ => None,
-                    },
-                    _ => {
-                        let mut conditions: Vec<Expr> = list
-                            .iter()
-                            .filter_map(|v| match v {
-                                GqlValue::Object(o) => get_filter(o, parameters),
-                                _ => None,
-                            })
-                            .collect();
-                        let mut last_expr = conditions.remove(0);
-                        for condition in conditions {
-                            let expr = Expr::BinaryOp {
-                                left: Box::new(condition),
-                                op: BinaryOperator::And,
-                                right: Box::new(last_expr),
-                            };
-                            last_expr = expr;
-                        }
-                        Some(last_expr)
-                    }
-                },
-                _ => {
-                    let left = Expr::Identifier(Ident {
-                        value: key.as_ref().to_owned(),
-                        quote_style: Some(QUOTE_CHAR),
-                    });
-                    get_expr(left, value, parameters)
-                }
-            }
+            handle_filter_arg(key, value, parameters)
         }
         _ => {
             let mut conditions: Vec<Expr> = args
-                .iter()
+                .into_iter()
                 .rev()
-                .map_while(|(key, value)| {
-                    get_expr(
-                        Expr::Identifier(Ident {
-                            value: key.as_ref().into(),
-                            quote_style: Some(QUOTE_CHAR),
-                        }),
-                        value,
-                        parameters,
-                    )
-                })
+                .map_while(|(key, value)| handle_filter_arg(key, value, parameters))
                 .collect();
+            if conditions.is_empty() {
+                return None;
+            }
             let mut last_expr = conditions.remove(0);
             for condition in conditions {
                 let expr = Expr::BinaryOp {
@@ -516,7 +516,7 @@ fn get_join<'a, T: Text<'a>>(
     name: &T::Value,
     parameters: &BTreeMap<String, (usize, DataType)>,
 ) -> Join {
-    let (selection, order_by, mut first, after) = parse_args(arguments, parameters);
+    let (selection, distinct, order_by, mut first, after) = parse_args(arguments, parameters);
     let (relation, fks, pks, is_single) = get_relation(directives);
     if is_single {
         first = Some(Expr::Value(Value::Number("1".to_string(), false)));
@@ -564,6 +564,7 @@ fn get_join<'a, T: Text<'a>>(
         first,
         after,
         relation.clone(),
+        distinct,
     );
     Join {
         relation: TableFactor::Derived {
@@ -860,17 +861,43 @@ fn get_relation<'a, T: Text<'a>>(
 
 fn get_filter_query(
     selection: Option<Expr>,
-    order_by: Vec<OrderByExpr>,
+    mut order_by: Vec<OrderByExpr>,
     first: Option<Expr>,
     after: Option<Offset>,
     table_name: String,
+    distinct: Option<Vec<String>>,
 ) -> Query {
+    let mut projection = vec![SelectItem::Wildcard(WildcardAdditionalOptions::default())];
+    let is_distinct = distinct.is_some();
+    if let Some(distinct) = distinct {
+        let columns = distinct
+            .into_iter()
+            .map(|s| Value::DoubleQuotedString(s).to_string())
+            .collect::<Vec<String>>();
+        projection = vec![SelectItem::UnnamedExpr(Expr::Identifier(Ident {
+            value: ON.to_owned() + " (" + &columns.join(",") + ") *",
+            quote_style: None,
+        }))];
+        columns.into_iter().rev().for_each(|c| {
+            order_by.insert(
+                0,
+                OrderByExpr {
+                    expr: Expr::Identifier(Ident {
+                        value: c,
+                        quote_style: None,
+                    }),
+                    asc: Some(true),
+                    nulls_first: None,
+                },
+            );
+        });
+    }
     Query {
         with: None,
         body: Box::new(SetExpr::Select(Box::new(Select {
-            distinct: false,
+            distinct: is_distinct,
             top: None,
-            projection: vec![SelectItem::Wildcard(WildcardAdditionalOptions::default())],
+            projection,
             into: None,
             from: vec![TableWithJoins {
                 relation: TableFactor::Table {
@@ -901,34 +928,108 @@ fn get_filter_query(
     }
 }
 
-fn get_order<'a, T: Text<'a>>(order: &BTreeMap<T::Value, GqlValue<'a, T>>) -> Vec<OrderByExpr> {
-    let mut order_by = vec![];
-    for (key, value) in order.iter() {
-        order_by.push(OrderByExpr {
-            expr: Expr::Identifier(Ident {
-                value: key.as_ref().into(),
-                quote_style: Some(QUOTE_CHAR),
-            }),
-            asc: match value {
-                GqlValue::String(s) => Some(s == "ASC"),
+fn get_order<'a, T: Text<'a>>(
+    order: &BTreeMap<T::Value, GqlValue<'a, T>>,
+    parameters: &BTreeMap<String, (usize, DataType)>,
+) -> Vec<OrderByExpr> {
+    if order.contains_key("expr") && order.contains_key("dir") {
+        let mut asc = None;
+        if let Some(dir) = order.get("dir") {
+            match dir {
+                GqlValue::String(s) => {
+                    asc = Some(s == "ASC");
+                }
                 GqlValue::Enum(e) => {
                     let s: &str = e.as_ref();
-                    Some(s == "ASC")
+                    asc = Some(s == "ASC");
                 }
                 _ => unimplemented!(),
-            },
-            nulls_first: None,
-        });
+            }
+        }
+        if let Some(expr) = order.get("expr") {
+            match expr {
+                GqlValue::String(s) => {
+                    return vec![OrderByExpr {
+                        expr: Expr::Identifier(Ident {
+                            value: s.clone(),
+                            quote_style: Some(QUOTE_CHAR),
+                        }),
+                        asc,
+                        nulls_first: None,
+                    }];
+                }
+                GqlValue::Object(args) => {
+                    if let Some(expression) = get_filter(args, parameters) {
+                        return vec![OrderByExpr {
+                            expr: expression,
+                            asc,
+                            nulls_first: None,
+                        }];
+                    }
+                }
+                _ => unimplemented!(),
+            }
+        }
+    }
+    let mut order_by = vec![];
+    for (key, value) in order.iter() {
+        match value {
+            GqlValue::String(s) => {
+                order_by.push(OrderByExpr {
+                    expr: Expr::Identifier(Ident {
+                        value: key.as_ref().into(),
+                        quote_style: Some(QUOTE_CHAR),
+                    }),
+                    asc: Some(s == "ASC"),
+                    nulls_first: None,
+                });
+            }
+            GqlValue::Enum(e) => {
+                let s: &str = e.as_ref();
+                order_by.push(OrderByExpr {
+                    expr: Expr::Identifier(Ident {
+                        value: key.as_ref().into(),
+                        quote_style: Some(QUOTE_CHAR),
+                    }),
+                    asc: Some(s == "ASC"),
+                    nulls_first: None,
+                });
+            }
+            _ => unimplemented!(),
+        }
     }
     order_by
+}
+
+fn get_distinct<'a, T: Text<'a>>(distinct: &Vec<GqlValue<'a, T>>) -> Option<Vec<String>> {
+    let values: Vec<String> = distinct
+        .iter()
+        .flat_map(|v| match v {
+            GqlValue::String(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
+    if values.is_empty() {
+        None
+    } else {
+        Some(values)
+    }
 }
 
 fn parse_args<'a, T: Text<'a>>(
     arguments: &Vec<(T::Value, GqlValue<'a, T>)>,
     parameters: &BTreeMap<String, (usize, DataType)>,
-) -> (Option<Expr>, Vec<OrderByExpr>, Option<Expr>, Option<Offset>) {
+) -> (
+    Option<Expr>,
+    Option<Vec<String>>,
+    Vec<OrderByExpr>,
+    Option<Expr>,
+    Option<Offset>,
+) {
     let mut selection = None;
     let mut order_by = vec![];
+    let mut distinct = None;
     let mut first = None;
     let mut after = None;
     for argument in arguments {
@@ -937,8 +1038,19 @@ fn parse_args<'a, T: Text<'a>>(
             ("filter" | "where", GqlValue::Object(filter)) => {
                 selection = get_filter(filter, parameters);
             }
+            ("distinct", GqlValue::List(d)) => {
+                distinct = get_distinct(d);
+            }
             ("order", GqlValue::Object(order)) => {
-                order_by = get_order(order);
+                order_by = get_order(order, parameters);
+            }
+            ("order", GqlValue::List(list)) => {
+                list.into_iter()
+                    .filter_map(|v| match v {
+                        GqlValue::Object(o) => Some(o),
+                        _ => None,
+                    })
+                    .for_each(|o| order_by.append(&mut get_order(&o, parameters)));
             }
             ("first", GqlValue::Int(count)) => {
                 first = Some(Expr::Value(Value::Number(
@@ -958,7 +1070,7 @@ fn parse_args<'a, T: Text<'a>>(
             _ => {}
         }
     }
-    (selection, order_by, first, after)
+    (selection, distinct, order_by, first, after)
 }
 
 fn get_mutation_columns<'a, T: Text<'a>>(
@@ -1099,7 +1211,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     || field.name.as_ref().into(),
                                     |alias| alias.as_ref().into(),
                                 );
-                                let (selection, order_by, mut first, after) =
+                                let (selection, distinct, order_by, mut first, after) =
                                     parse_args(&field.arguments, &parameters);
                                 if name.ends_with("_aggregate") {
                                     name = &name[..name.len() - 10];
@@ -1113,6 +1225,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         first,
                                         after,
                                         name.to_owned(),
+                                        distinct,
                                     );
                                     statements.push((
                                         key,
@@ -1165,6 +1278,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         first,
                                         after,
                                         name.to_owned(),
+                                        distinct,
                                     );
                                     let root_query = get_root_query::<&str>(
                                         projection,
@@ -1708,6 +1822,47 @@ mod tests {
         let (statement, _params) = gql2sql(gqlast)?;
         println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
+        Ok(())
+    }
+
+    #[test]
+    fn query_distinct() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query::<&str>(
+            r#"query GetApp($componentId: String!, $branch: String!) {
+                component: Component_one(filter: { id : { eq: $componentId }, or: [{ branch: { eq: $branch } }, { branch: { eq: "main" } }] }, order: [{ expr: { branch: { eq: $branch } }, dir: DESC }], distinct: ["id"]) {
+                   id
+                   branch
+                   kind @static(value: "page")
+                }
+            }"#,
+        )?
+        .clone();
+        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind") AS "root")) AS "root" FROM (SELECT DISTINCT ON ("id") * FROM "Component" WHERE "id" = $1 AND ("branch" = $2 OR "branch" = 'main') ORDER BY "id" ASC, "branch" = $2 DESC LIMIT 1) AS "base")) AS "data""#;
+        let (statement, _params) = gql2sql(gqlast)?;
+        println!("Statements:\n'{}'", statement);
+        assert_eq!(statement.to_string(), sql);
+        Ok(())
+    }
+
+    #[test]
+    fn query_ast() -> Result<(), anyhow::Error> {
+        let sql = r#"
+            SELECT
+            DISTINCT ON (column1)
+            column2
+            FROM
+            table_name
+            WHERE
+            column1 = 'value'
+            AND (column2 = 'value' OR column3 = 'value')
+            ORDER BY
+            column1,
+            column2;
+        "#;
+        let dialect = PostgreSqlDialect {};
+        let sqlast = Parser::parse_sql(&dialect, sql)?;
+        println!("ast:\n{:#?}", sqlast);
+        println!("back:\n{:#?}", sqlast[0].to_string());
         Ok(())
     }
 }

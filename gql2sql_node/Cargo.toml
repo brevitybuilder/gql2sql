@@ -13,6 +13,7 @@ napi = "2"
 napi-derive = "2"
 gql2sql = { path = "../gql2sql" }
 graphql-parser = "0.4"
+cached = "0.42.0"
 
 [build-dependencies]
 napi-build = "2"

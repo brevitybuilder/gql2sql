@@ -77,6 +77,7 @@ async fn graphql<'a>(
     meta.insert("parse".to_string(), start.elapsed().as_millis().to_string());
     let start = std::time::Instant::now();
     let (statement, params) = gql2sql::gql2sql(gqlast).unwrap();
+    println!("statement: {}", statement);
     meta.insert(
         "transform".to_string(),
         start.elapsed().as_millis().to_string(),
