@@ -39,38 +39,41 @@ mod tests {
     #[test]
     fn it_works() {
         let mut tags = HashSet::new();
-        cache_tags(&json!({
-            "data": {
-                "launchesPast": [
-                    {
-                        "__typename": "Launch",
-                        "id": "109",
-                        "mission_name": "Starlink-15 (v1.0)",
-                        "launch_date_utc": "2020-10-24T15:31:00.000Z",
-                        "rocket": {
-                            "__typename": "LaunchRocket",
+        cache_tags(
+            &json!({
+                "data": {
+                    "launchesPast": [
+                        {
+                            "__typename": "Launch",
+                            "id": "109",
+                            "mission_name": "Starlink-15 (v1.0)",
+                            "launch_date_utc": "2020-10-24T15:31:00.000Z",
                             "rocket": {
-                                "__typename": "Rocket",
-                                "id": "falcon9"
+                                "__typename": "LaunchRocket",
+                                "rocket": {
+                                    "__typename": "Rocket",
+                                    "id": "falcon9"
+                                }
+                            }
+                        },
+                        {
+                            "__typename": "Launch",
+                            "id": "108",
+                            "mission_name": "Sentinel-6 Michael Freilich",
+                            "launch_date_utc": "2020-11-21T17:17:00.000Z",
+                            "rocket": {
+                                "__typename": "LaunchRocket",
+                                "rocket": {
+                                    "__typename": "Rocket",
+                                    "id": "falcon9"
+                                }
                             }
                         }
-                    },
-                    {
-                        "__typename": "Launch",
-                        "id": "108",
-                        "mission_name": "Sentinel-6 Michael Freilich",
-                        "launch_date_utc": "2020-11-21T17:17:00.000Z",
-                        "rocket": {
-                            "__typename": "LaunchRocket",
-                            "rocket": {
-                                "__typename": "Rocket",
-                                "id": "falcon9"
-                            }
-                        }
-                    }
-                ]
-            }
-        }), &mut tags);
+                    ]
+                }
+            }),
+            &mut tags,
+        );
         println!("{:?}", tags.clone());
         assert_eq!(tags.len(), 6);
     }

@@ -3,7 +3,6 @@ static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 extern crate dotenv;
 
-use sqlx::Row;
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts, State},
@@ -18,10 +17,14 @@ use http::{
     HeaderValue,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{value::{to_raw_value}, Value};
-use sqlx::{postgres::{PgArguments, PgRow}, FromRow};
+use serde_json::{value::to_raw_value, Value};
 use sqlx::Arguments;
+use sqlx::Row;
 use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{
+    postgres::{PgArguments, PgRow},
+    FromRow,
+};
 use std::collections::BTreeMap;
 use std::{iter::once, net::SocketAddr};
 use tower_http::{
@@ -40,7 +43,6 @@ struct Query {
     query: String,
     variables: Option<Value>,
 }
-
 
 #[derive(Deserialize)]
 struct QueryResponse {

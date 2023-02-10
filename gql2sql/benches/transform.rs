@@ -1,5 +1,3 @@
-
-
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gql2sql::gql2sql;
 use graphql_parser::query::parse_query;

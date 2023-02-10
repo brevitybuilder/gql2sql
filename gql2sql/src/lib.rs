@@ -7,10 +7,10 @@ use graphql_parser::query::{
 };
 use graphql_parser::schema::{Directive, Text, Type, Value as GqlValue};
 use sqlparser::ast::{
-    Assignment, BinaryOperator, DataType, Expr, Function, FunctionArg,
-    FunctionArgExpr, Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows,
-    OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, TableAlias, TableFactor,
-    TableWithJoins, Value, Values, WildcardAdditionalOptions,
+    Assignment, BinaryOperator, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
+    Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
+    SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
+    WildcardAdditionalOptions,
 };
 use std::collections::BTreeMap;
 use std::iter::zip;
