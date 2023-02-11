@@ -10,7 +10,7 @@ gql2sql = { path = "../gql2sql" }
 actix-web = "4.2.1"
 json = "0.12.4"
 serde = { version = "1.0.152", features = ["derive"] }
-serde_json = { version = "1.0.91", features = ["raw_value"] }
+serde_json = { version = "1.0.93", features = ["raw_value"] }
 graphql-parser = "0.4.0"
 dotenv = "0.15.0"
 dotenv_codegen = "0.15.0"
