@@ -769,9 +769,10 @@ fn get_projection<'a, T: Text<'a>>(
             Selection::InlineFragment(frag) => {
                 if let Some(type_condition) = &frag.type_condition {
                     let TypeCondition::On(name) = type_condition;
+                    let args = frag.directives.iter().find(|d| d.name.as_ref() == "args");
                     let (relation, _fks, _pks, _is_single) = get_relation(&frag.directives);
                     let join = get_join(
-                        &vec![],
+                        args.map_or(&vec![], |dir| &dir.arguments),
                         &frag.directives,
                         &frag.selection_set.items,
                         path,
@@ -1794,14 +1795,18 @@ mod tests {
     #[test]
     fn query_frag() -> Result<(), anyhow::Error> {
         let gqlast = parse_query::<&str>(
-            r#"query GetApp($componentId: String!) {
+            r#"query GetApp($componentId: String!, $branch: String!) {
                 component: Component_one(filter: { id : { eq: $componentId } }) {
                    id
                    branch
-                   ... on ComponentMeta @relation(
+                   ... on ComponentMeta @args(
+                       filter: {
+                            or: [{ branch: { eq: $branch } }, { branch: { eq: "main" } }]
+                       }
+                       ) @relation(
                         table: "ComponentMeta"
-                        field: ["componentId", "branch"]
-                        references: ["id", "branch"]
+                        field: ["componentId"]
+                        references: ["id"]
                         single: true
                     ) {
                      title
@@ -1811,12 +1816,10 @@ mod tests {
         )?
         .clone();
         // println!("ast {:#?}", gqlast);
-        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root"))::jsonb || CASE WHEN "root.ComponentMeta"."ComponentMeta" IS NOT NULL THEN to_jsonb("ComponentMeta") ELSE jsonb_build_object() END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.ComponentMeta"."title") AS "root")) AS "ComponentMeta" FROM (SELECT * FROM "ComponentMeta" WHERE "ComponentMeta"."componentId" = "base"."id" AND "ComponentMeta"."branch" = "base"."branch" LIMIT 1) AS "base.ComponentMeta") AS "root.ComponentMeta" ON ('true'))) AS "data""#;
-        let dialect = PostgreSqlDialect {};
-        let sqlast = Parser::parse_sql(&dialect, sql)?;
+        let sql = r#"SELECT json_build_object('component', (SELECT CAST(to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root")) AS jsonb) || CASE WHEN "root.ComponentMeta"."ComponentMeta" IS NOT NULL THEN to_jsonb("ComponentMeta") ELSE jsonb_build_object() END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.ComponentMeta"."title") AS "root")) AS "ComponentMeta" FROM (SELECT * FROM "ComponentMeta" WHERE "ComponentMeta"."componentId" = "base"."id" AND ("branch" = $2 OR "branch" = 'main') LIMIT 1) AS "base.ComponentMeta") AS "root.ComponentMeta" ON ('true'))) AS "data""#;
         let (statement, _params) = gql2sql(gqlast)?;
         println!("Statements:\n'{}'", statement);
-        assert_eq!(vec![statement], sqlast);
+        assert_eq!(sql, statement.to_string());
         Ok(())
     }
 

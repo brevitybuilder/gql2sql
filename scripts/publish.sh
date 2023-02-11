@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
+cargo fmt
 git update-index -q --refresh
 if ! git diff-index --quiet HEAD --; then
   echo "Working directory not clean, please commit your changes first"
