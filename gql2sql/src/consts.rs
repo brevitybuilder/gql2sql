@@ -1,4 +1,5 @@
 pub const QUOTE_CHAR: char = '"';
+pub const BASE: &str = "base";
 pub const ROOT_LABEL: &str = "root";
 pub const DATA_LABEL: &str = "data";
 pub const JSON_BUILD_OBJECT: &str = "json_build_object";

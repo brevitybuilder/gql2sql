@@ -18,22 +18,33 @@ use std::iter::zip;
 fn get_value<'a, T: Text<'a>>(
     value: &GqlValue<'a, T>,
     parameters: &BTreeMap<String, (usize, DataType)>,
-) -> Value {
+) -> Expr {
     match value {
         GqlValue::Variable(v) => {
             let (index, _data_type) = parameters.get(v.as_ref()).expect("variable not found");
-            Value::Placeholder(format!("${}", index))
+            Expr::Value(Value::Placeholder(format!("${}", index)))
         }
-        GqlValue::Null => Value::Null,
-        GqlValue::String(s) => Value::SingleQuotedString(s.clone()),
-        GqlValue::Int(i) => {
-            Value::Number(i.as_i64().expect("Number to be an i64").to_string(), false)
-        }
-        GqlValue::Float(f) => Value::Number(f.to_string(), false),
-        GqlValue::Boolean(b) => Value::Boolean(b.to_owned()),
-        GqlValue::Enum(e) => Value::SingleQuotedString(e.as_ref().into()),
+        GqlValue::Null => Expr::Value(Value::Null),
+        GqlValue::String(s) => Expr::Value(Value::SingleQuotedString(s.clone())),
+        GqlValue::Int(i) => Expr::Value(Value::Number(
+            i.as_i64().expect("Number to be an i64").to_string(),
+            false,
+        )),
+        GqlValue::Float(f) => Expr::Value(Value::Number(f.to_string(), false)),
+        GqlValue::Boolean(b) => Expr::Value(Value::Boolean(b.to_owned())),
+        GqlValue::Enum(e) => Expr::Value(Value::SingleQuotedString(e.as_ref().into())),
         GqlValue::List(_l) => unimplemented!(),
-        GqlValue::Object(_o) => unimplemented!(),
+        GqlValue::Object(o) => {
+            if o.contains_key("_parentRef") {
+                if let Some(GqlValue::String(s)) = o.get("_parentRef") {
+                    return Expr::CompoundIdentifier(vec![
+                        Ident::with_quote(QUOTE_CHAR, BASE.to_owned()),
+                        Ident::with_quote(QUOTE_CHAR, s),
+                    ]);
+                }
+            }
+            unimplemented!()
+        }
     }
 }
 
@@ -64,13 +75,13 @@ fn get_expr<'a, T: Text<'a>>(
                     "like" => Some(Expr::Like {
                         negated: false,
                         expr: Box::new(left),
-                        pattern: Box::new(Expr::Value(right_value)),
+                        pattern: Box::new(right_value),
                         escape_char: None,
                     }),
                     "ilike" => Some(Expr::ILike {
                         negated: false,
                         expr: Box::new(left),
-                        pattern: Box::new(Expr::Value(right_value)),
+                        pattern: Box::new(right_value),
                         escape_char: None,
                     }),
                     _ => {
@@ -78,7 +89,7 @@ fn get_expr<'a, T: Text<'a>>(
                         Some(Expr::BinaryOp {
                             left: Box::new(left),
                             op,
-                            right: Box::new(Expr::Value(right_value)),
+                            right: Box::new(right_value),
                         })
                     }
                 }
@@ -93,7 +104,7 @@ fn get_expr<'a, T: Text<'a>>(
                         Expr::BinaryOp {
                             left: Box::new(left.clone()),
                             op,
-                            right: Box::new(Expr::Value(value)),
+                            right: Box::new(value),
                         }
                     })
                     .collect();
@@ -539,7 +550,7 @@ fn get_join<'a, T: Text<'a>>(
             op: BinaryOperator::Eq,
             right: Box::new(Expr::CompoundIdentifier(vec![
                 Ident {
-                    value: path.map_or("base".to_string(), |v| v.to_string()),
+                    value: path.map_or(BASE.to_string(), |v| v.to_string()),
                     quote_style: Some(QUOTE_CHAR),
                 },
                 Ident {
@@ -552,14 +563,18 @@ fn get_join<'a, T: Text<'a>>(
             left: Box::new(acc),
             op: BinaryOperator::And,
             right: Box::new(expr),
-        })
-        .unwrap_or(Expr::Value(Value::Boolean(true)));
+        });
     let sub_query = get_filter_query(
-        Some(selection.map_or(join_filter.clone(), |s| Expr::BinaryOp {
-            left: Box::new(join_filter),
-            op: BinaryOperator::And,
-            right: Box::new(s),
-        })),
+        selection.map_or_else(|| join_filter.clone(), |s| {
+            Some(join_filter.clone().map_or_else(
+                || s.clone(),
+                |jf| Expr::BinaryOp {
+                    left: Box::new(jf),
+                    op: BinaryOperator::And,
+                    right: Box::new(s.clone()),
+                },
+            ))
+        }),
         order_by,
         first,
         after,
@@ -1089,7 +1104,7 @@ fn get_mutation_columns<'a, T: Text<'a>>(
                         value: key.as_ref().into(),
                         quote_style: Some(QUOTE_CHAR),
                     });
-                    row.push(Expr::Value(get_value(value, parameters)));
+                    row.push(get_value(value, parameters));
                 }
                 rows.push(row);
             }
@@ -1107,7 +1122,7 @@ fn get_mutation_columns<'a, T: Text<'a>>(
                                     quote_style: Some(QUOTE_CHAR),
                                 });
                             }
-                            row.push(Expr::Value(get_value(value, parameters)));
+                            row.push(get_value(value, parameters));
                         }
                     }
                     rows.push(row);
@@ -1138,7 +1153,7 @@ fn get_mutation_assignments<'a, T: Text<'a>>(
                             value: key.as_ref().into(),
                             quote_style: Some(QUOTE_CHAR),
                         }],
-                        value: Expr::Value(get_value(value, parameters)),
+                        value: get_value(value, parameters),
                     });
                 }
             }
@@ -1153,7 +1168,7 @@ fn get_mutation_assignments<'a, T: Text<'a>>(
                         value: Expr::BinaryOp {
                             left: Box::new(Expr::Identifier(column_ident)),
                             op: BinaryOperator::Plus,
-                            right: Box::new(Expr::Value(get_value(value, parameters))),
+                            right: Box::new(get_value(value, parameters)),
                         },
                     });
                 }
@@ -1215,10 +1230,8 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     parse_args(&field.arguments, &parameters);
                                 if name.ends_with("_aggregate") {
                                     name = &name[..name.len() - 10];
-                                    let aggs = get_aggregate_projection(
-                                        &field.selection_set.items,
-                                        "base",
-                                    );
+                                    let aggs =
+                                        get_aggregate_projection(&field.selection_set.items, BASE);
                                     let base_query = get_filter_query(
                                         selection,
                                         order_by,
@@ -1239,7 +1252,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                                         subquery: Box::new(base_query),
                                                         alias: Some(TableAlias {
                                                             name: Ident {
-                                                                value: "base".to_string(),
+                                                                value: BASE.to_string(),
                                                                 quote_style: Some(QUOTE_CHAR),
                                                             },
                                                             columns: vec![],
@@ -1269,7 +1282,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     let (projection, joins, merges) = get_projection(
                                         &field.selection_set.items,
                                         name,
-                                        Some("base"),
+                                        Some(BASE),
                                         &parameters,
                                     );
                                     let base_query = get_filter_query(
@@ -1288,7 +1301,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                                 subquery: Box::new(base_query),
                                                 alias: Some(TableAlias {
                                                     name: Ident {
-                                                        value: "base".to_string(),
+                                                        value: BASE.to_string(),
                                                         quote_style: Some(QUOTE_CHAR),
                                                     },
                                                     columns: vec![],
@@ -1833,11 +1846,14 @@ mod tests {
                    id
                    branch
                    kind @static(value: "page")
+                   stuff(filter: { componentId: { eq: { _parentRef: "id" } } }) @relation(table: "Stuff") {
+                     id
+                   }
                 }
             }"#,
         )?
         .clone();
-        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind") AS "root")) AS "root" FROM (SELECT DISTINCT ON ("id") * FROM "Component" WHERE "id" = $1 AND ("branch" = $2 OR "branch" = 'main') ORDER BY "id" ASC, "branch" = $2 DESC LIMIT 1) AS "base")) AS "data""#;
+        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind", "stuff") AS "root")) AS "root" FROM (SELECT DISTINCT ON ("id") * FROM "Component" WHERE "id" = $1 AND ("branch" = $2 OR "branch" = 'main') ORDER BY "id" ASC, "branch" = $2 DESC LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Stuff"."id") AS "root"))), '[]') AS "stuff" FROM (SELECT * FROM "Stuff" WHERE "componentId" = "base"."id") AS "base.Stuff") AS "root.Stuff" ON ('true'))) AS "data""#;
         let (statement, _params) = gql2sql(gqlast)?;
         println!("Statements:\n'{}'", statement);
         assert_eq!(statement.to_string(), sql);
