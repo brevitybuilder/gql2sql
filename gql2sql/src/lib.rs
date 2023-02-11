@@ -565,16 +565,19 @@ fn get_join<'a, T: Text<'a>>(
             right: Box::new(expr),
         });
     let sub_query = get_filter_query(
-        selection.map_or_else(|| join_filter.clone(), |s| {
-            Some(join_filter.clone().map_or_else(
-                || s.clone(),
-                |jf| Expr::BinaryOp {
-                    left: Box::new(jf),
-                    op: BinaryOperator::And,
-                    right: Box::new(s.clone()),
-                },
-            ))
-        }),
+        selection.map_or_else(
+            || join_filter.clone(),
+            |s| {
+                Some(join_filter.clone().map_or_else(
+                    || s.clone(),
+                    |jf| Expr::BinaryOp {
+                        left: Box::new(jf),
+                        op: BinaryOperator::And,
+                        right: Box::new(s.clone()),
+                    },
+                ))
+            },
+        ),
         order_by,
         first,
         after,
