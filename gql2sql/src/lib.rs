@@ -769,7 +769,10 @@ fn get_projection<'a, T: Text<'a>>(
             Selection::InlineFragment(frag) => {
                 if let Some(type_condition) = &frag.type_condition {
                     let TypeCondition::On(name) = type_condition;
-                    let args = frag.directives.iter().find(|d| d.name.as_ref() == "args");
+                    let args = frag
+                        .directives
+                        .iter()
+                        .find(|d| d.name.as_ref() == "relation");
                     let (relation, _fks, _pks, _is_single) = get_relation(&frag.directives);
                     let join = get_join(
                         args.map_or(&vec![], |dir| &dir.arguments),
@@ -870,7 +873,7 @@ fn get_relation<'a, T: Text<'a>>(
                             is_single = *b;
                         }
                     }
-                    _ => unimplemented!(),
+                    _ => {}
                 }
             }
         }
@@ -1799,15 +1802,14 @@ mod tests {
                 component: Component_one(filter: { id : { eq: $componentId } }) {
                    id
                    branch
-                   ... on ComponentMeta @args(
-                       filter: {
-                            or: [{ branch: { eq: $branch } }, { branch: { eq: "main" } }]
-                       }
-                       ) @relation(
+                   ... on ComponentMeta @relation(
                         table: "ComponentMeta"
                         field: ["componentId"]
                         references: ["id"]
                         single: true
+                        filter: {
+                                or: [{ branch: { eq: $branch } }, { branch: { eq: "main" } }]
+                        }
                     ) {
                      title
                    }
