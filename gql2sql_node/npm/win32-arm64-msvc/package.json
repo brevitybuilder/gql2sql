@@ -1,6 +1,6 @@
 {
   "name": "@brevity-builder/gql2sql-win32-arm64-msvc",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "os": [
     "win32"
   ],
