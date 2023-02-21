@@ -584,7 +584,7 @@ fn get_join<'a, T: Text<'a>>(
         after,
         relation.clone(),
         distinct,
-        distinct_order
+        distinct_order,
     );
     Join {
         relation: TableFactor::Derived {
@@ -966,13 +966,24 @@ fn get_filter_query(
                         lateral: false,
                         subquery: Box::new(q),
                         alias: Some(TableAlias {
-                            name: Ident { value: "sorter".to_string(), quote_style: None },
-                            columns: vec![]
-                        })
+                            name: Ident {
+                                value: "sorter".to_string(),
+                                quote_style: None,
+                            },
+                            columns: vec![],
+                        }),
                     },
                     joins: vec![],
                 }],
-                lateral_views: vec![], selection: None, group_by: vec![], cluster_by: vec![], distribute_by: vec![], sort_by: vec![], having: None, qualify: None }))),
+                lateral_views: vec![],
+                selection: None,
+                group_by: vec![],
+                cluster_by: vec![],
+                distribute_by: vec![],
+                sort_by: vec![],
+                having: None,
+                qualify: None,
+            }))),
             order_by,
             limit: None,
             offset: None,
@@ -1306,7 +1317,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         after,
                                         name.to_owned(),
                                         distinct,
-                                        distinct_order
+                                        distinct_order,
                                     );
                                     statements.push((
                                         key,
@@ -1360,7 +1371,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         after,
                                         name.to_owned(),
                                         distinct,
-                                        distinct_order
+                                        distinct_order,
                                     );
                                     let root_query = get_root_query::<&str>(
                                         projection,
