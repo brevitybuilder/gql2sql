@@ -527,7 +527,8 @@ fn get_join<'a, T: Text<'a>>(
     name: &T::Value,
     parameters: &BTreeMap<String, (usize, DataType)>,
 ) -> Join {
-    let (selection, distinct, order_by, mut first, after) = parse_args(arguments, parameters);
+    let (selection, distinct, distinct_order, order_by, mut first, after) =
+        parse_args(arguments, parameters);
     let (relation, fks, pks, is_single) = get_relation(directives);
     if is_single {
         first = Some(Expr::Value(Value::Number("1".to_string(), false)));
@@ -583,6 +584,7 @@ fn get_join<'a, T: Text<'a>>(
         after,
         relation.clone(),
         distinct,
+        distinct_order
     );
     Join {
         relation: TableFactor::Derived {
@@ -883,14 +885,17 @@ fn get_relation<'a, T: Text<'a>>(
 
 fn get_filter_query(
     selection: Option<Expr>,
-    mut order_by: Vec<OrderByExpr>,
+    order_by: Vec<OrderByExpr>,
     first: Option<Expr>,
     after: Option<Offset>,
     table_name: String,
     distinct: Option<Vec<String>>,
+    distinct_order: Option<Vec<OrderByExpr>>,
 ) -> Query {
     let mut projection = vec![SelectItem::Wildcard(WildcardAdditionalOptions::default())];
     let is_distinct = distinct.is_some();
+    let has_distinct_order = distinct_order.is_some();
+    let mut distinct_order_by = distinct_order.unwrap_or_else(|| order_by.clone());
     if let Some(distinct) = distinct {
         let columns = distinct
             .into_iter()
@@ -901,7 +906,7 @@ fn get_filter_query(
             quote_style: None,
         }))];
         columns.into_iter().rev().for_each(|c| {
-            order_by.insert(
+            distinct_order_by.insert(
                 0,
                 OrderByExpr {
                     expr: Expr::Identifier(Ident {
@@ -914,7 +919,7 @@ fn get_filter_query(
             );
         });
     }
-    Query {
+    let q = Query {
         with: None,
         body: Box::new(SetExpr::Select(Box::new(Select {
             distinct: is_distinct,
@@ -942,11 +947,40 @@ fn get_filter_query(
             having: None,
             qualify: None,
         }))),
-        order_by,
+        order_by: distinct_order_by,
         limit: first,
         offset: after,
         fetch: None,
         locks: vec![],
+    };
+    if has_distinct_order {
+        Query {
+            with: None,
+            body: Box::new(SetExpr::Select(Box::new(Select {
+                distinct: false,
+                top: None,
+                projection: vec![SelectItem::Wildcard(WildcardAdditionalOptions::default())],
+                into: None,
+                from: vec![TableWithJoins {
+                    relation: TableFactor::Derived {
+                        lateral: false,
+                        subquery: Box::new(q),
+                        alias: Some(TableAlias {
+                            name: Ident { value: "sorter".to_string(), quote_style: None },
+                            columns: vec![]
+                        })
+                    },
+                    joins: vec![],
+                }],
+                lateral_views: vec![], selection: None, group_by: vec![], cluster_by: vec![], distribute_by: vec![], sort_by: vec![], having: None, qualify: None }))),
+            order_by,
+            limit: None,
+            offset: None,
+            fetch: None,
+            locks: vec![],
+        }
+    } else {
+        q
     }
 }
 
@@ -1045,6 +1079,7 @@ fn parse_args<'a, T: Text<'a>>(
 ) -> (
     Option<Expr>,
     Option<Vec<String>>,
+    Option<Vec<OrderByExpr>>,
     Vec<OrderByExpr>,
     Option<Expr>,
     Option<Offset>,
@@ -1052,6 +1087,7 @@ fn parse_args<'a, T: Text<'a>>(
     let mut selection = None;
     let mut order_by = vec![];
     let mut distinct = None;
+    let mut distinct_order = None;
     let mut first = None;
     let mut after = None;
     for argument in arguments {
@@ -1060,8 +1096,26 @@ fn parse_args<'a, T: Text<'a>>(
             ("filter" | "where", GqlValue::Object(filter)) => {
                 selection = get_filter(filter, parameters);
             }
-            ("distinct", GqlValue::List(d)) => {
-                distinct = get_distinct(d);
+            ("distinct", GqlValue::Object(d)) => {
+                if let Some(GqlValue::List(list)) = d.get("on") {
+                    distinct = get_distinct(list);
+                }
+                match d.get("order") {
+                    Some(GqlValue::Object(order)) => {
+                        distinct_order = Some(get_order(order, parameters));
+                    }
+                    Some(GqlValue::List(list)) => {
+                        let order = list
+                            .into_iter()
+                            .filter_map(|v| match v {
+                                GqlValue::Object(o) => Some(o),
+                                _ => None,
+                            })
+                            .map(|o| get_order(&o, parameters));
+                        distinct_order = Some(order.flatten().collect());
+                    }
+                    _ => unimplemented!(),
+                }
             }
             ("order", GqlValue::Object(order)) => {
                 order_by = get_order(order, parameters);
@@ -1092,7 +1146,7 @@ fn parse_args<'a, T: Text<'a>>(
             _ => {}
         }
     }
-    (selection, distinct, order_by, first, after)
+    (selection, distinct, distinct_order, order_by, first, after)
 }
 
 fn get_mutation_columns<'a, T: Text<'a>>(
@@ -1233,8 +1287,14 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     || field.name.as_ref().into(),
                                     |alias| alias.as_ref().into(),
                                 );
-                                let (selection, distinct, order_by, mut first, after) =
-                                    parse_args(&field.arguments, &parameters);
+                                let (
+                                    selection,
+                                    distinct,
+                                    distinct_order,
+                                    order_by,
+                                    mut first,
+                                    after,
+                                ) = parse_args(&field.arguments, &parameters);
                                 if name.ends_with("_aggregate") {
                                     name = &name[..name.len() - 10];
                                     let aggs =
@@ -1246,6 +1306,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         after,
                                         name.to_owned(),
                                         distinct,
+                                        distinct_order
                                     );
                                     statements.push((
                                         key,
@@ -1299,6 +1360,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         after,
                                         name.to_owned(),
                                         distinct,
+                                        distinct_order
                                     );
                                     let root_query = get_root_query::<&str>(
                                         projection,
@@ -1850,7 +1912,19 @@ mod tests {
     fn query_distinct() -> Result<(), anyhow::Error> {
         let gqlast = parse_query::<&str>(
             r#"query GetApp($componentId: String!, $branch: String!) {
-                component: Component_one(filter: { id : { eq: $componentId }, or: [{ branch: { eq: $branch } }, { branch: { eq: "main" } }] }, order: [{ expr: { branch: { eq: $branch } }, dir: DESC }], distinct: ["id"]) {
+                component: Component_one(
+                    filter: {
+                        id : { eq: $componentId },
+                        or: [
+                            { branch: { eq: $branch } },
+                            { branch: { eq: "main" } }
+                        ]
+                    },
+                    order: [
+                        { orderKey: ASC }
+                    ],
+                    distinct: { on: ["id"], order: [{ expr: { branch: { eq: $branch } }, dir: DESC }] }
+                ) {
                    id
                    branch
                    kind @static(value: "page")
@@ -1861,7 +1935,7 @@ mod tests {
             }"#,
         )?
         .clone();
-        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind", "stuff") AS "root")) AS "root" FROM (SELECT DISTINCT ON ("id") * FROM "Component" WHERE "id" = $1 AND ("branch" = $2 OR "branch" = 'main') ORDER BY "id" ASC, "branch" = $2 DESC LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Stuff"."id") AS "root"))), '[]') AS "stuff" FROM (SELECT * FROM "Stuff" WHERE "componentId" = "base"."id") AS "base.Stuff") AS "root.Stuff" ON ('true'))) AS "data""#;
+        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind", "stuff") AS "root")) AS "root" FROM (SELECT * FROM (SELECT DISTINCT ON ("id") * FROM "Component" WHERE "id" = $1 AND ("branch" = $2 OR "branch" = 'main') ORDER BY "id" ASC, "branch" = $2 DESC LIMIT 1) AS sorter ORDER BY "orderKey" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Stuff"."id") AS "root"))), '[]') AS "stuff" FROM (SELECT * FROM "Stuff" WHERE "componentId" = "base"."id") AS "base.Stuff") AS "root.Stuff" ON ('true'))) AS "data""#;
         let (statement, _params) = gql2sql(gqlast)?;
         println!("Statements:\n'{}'", statement);
         assert_eq!(statement.to_string(), sql);
