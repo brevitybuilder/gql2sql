@@ -953,7 +953,7 @@ fn get_filter_query(
         fetch: None,
         locks: vec![],
     };
-    if has_distinct_order {
+    if has_distinct_order && order_by.len() > 0 {
         Query {
             with: None,
             body: Box::new(SetExpr::Select(Box::new(Select {
