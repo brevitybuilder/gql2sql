@@ -115,7 +115,7 @@
     "@brevity-builder/gql2sql-linux-arm64-musl": "0.8.0",
     "@brevity-builder/gql2sql-linux-x64-gnu": "0.8.0",
     "@brevity-builder/gql2sql-linux-x64-musl": "0.8.0",
-    "@brevity-builder/gql2sql-win32-arm64-msvc": "0.8.0",
+    "@brevity-builder/gql2sql-win32-arm64-msvc": "0.9.1",
     "@brevity-builder/gql2sql-win32-ia32-msvc": "0.8.0",
     "@brevity-builder/gql2sql-win32-x64-msvc": "0.8.0"
   }
