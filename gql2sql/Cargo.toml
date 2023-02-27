@@ -7,7 +7,6 @@ publish = false
 [dependencies]
 anyhow = "1.0"
 graphql-parser = "0.4"
-serde_json = "1.0"
 sqlparser = "0.30"
 
 [dev-dependencies]

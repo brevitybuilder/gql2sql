@@ -8,20 +8,16 @@ publish = false
 
 [dependencies]
 gql2sql = { path = "../gql2sql" }
-actix-web = "4.3.0"
-json = "0.12.4"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = { version = "1.0.93", features = ["raw_value"] }
 graphql-parser = "0.4.0"
-dotenv = "0.15.0"
-dotenv_codegen = "0.15.0"
-futures = "0.3.26"
 jemallocator = "0.5.0"
-axum = { version = "0.6.7", features = ["headers"] }
+axum = { version = "0.6.9", features = ["headers"] }
 tokio = { version = "1.25", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "any", "postgres"] }
 tower-http = { version = "0.3.5", features = ["compression-br", "compression-gzip", "propagate-header", "sensitive-headers", "set-header", "trace", "validate-request", "auth"] }
 http = "0.2.9"
+dotenvy = "0.15.6"
 

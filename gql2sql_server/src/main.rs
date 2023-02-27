@@ -1,8 +1,6 @@
 #[global_allocator]
 static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
-extern crate dotenv;
-
 use axum::{
     async_trait,
     extract::{FromRef, FromRequestParts, State},
@@ -11,7 +9,7 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use http::{
     header::{HeaderName, AUTHORIZATION},
     HeaderValue,

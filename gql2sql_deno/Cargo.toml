@@ -14,4 +14,3 @@ gql2sql = { path = "../gql2sql" }
 graphql-parser = "0.4"
 deno_bindgen = "0.7.0"
 serde = { version = "1", features = ["derive"] }
-cached = "0.42.0"
