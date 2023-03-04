@@ -24,4 +24,3 @@ pnpm add @brevity-builder/gql2sql
 | Linux arm64 musl | ✓      | ✓      | ✓      |
 | Android arm64    | ✓      | ✓      | ✓      |
 | Android armv7    | ✓      | ✓      | ✓      |
-| FreeBSD x64      | ✓      | ✓      | ✓      |
