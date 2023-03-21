@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+    "app-backend",
     "gql2sql",
     "gql2sql_wasm",
     "gql2sql_server",

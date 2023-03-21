@@ -1,0 +1,218 @@
+openapi: 3.0.2
+info:
+  title: APP BACKEND
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /pg/v1/column:
+    post:
+      summary: Create a new column
+      operationId: createColumn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                table_id:
+                  type: string
+                column_name:
+                  type: string
+                column_id:
+                  type: string
+                column_type:
+                  type: string
+                  enum:
+                    - text
+                    - integer
+                    - numeric
+                    - boolean
+                    - time
+                    - timestampz
+                    - nanoid
+                    - json
+                    - jsonb
+                is_list:
+                  type: boolean
+                constraints:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - unique
+              required:
+                - table_id
+                - column_name
+                - column_type
+      responses:
+        200:
+          description: Column created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  column_id:
+                    type: string
+                  message:
+                    type: string
+  /pg/v1/update-column:
+    post:
+      summary: Update an existing column's name
+      operationId: updateColumn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                table_id:
+                  type: string
+                column_id:
+                  type: string
+                new_column_name:
+                  type: string
+      responses:
+        200:
+          description: Column updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+  /pg/v1/add-column-index:
+    post:
+      summary: Add an index to a column
+      operationId: addColumnIndex
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                table_id:
+                  type: string
+                column_id:
+                  type: string
+                index_id:
+                  type: string
+                index_name:
+                  type: string
+      responses:
+        200:
+          description: Index added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  index_id:
+                    type: string
+                  message:
+                    type: string
+  /pg/v1/table:
+    post:
+      summary: Create a new table
+      operationId: createTable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                table_name:
+                  type: string
+                table_id:
+                  type: string
+      responses:
+        200:
+          description: Table created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  table_id:
+                    type: string
+                  message:
+                    type: string
+    get:
+      summary: Get table details
+      operationId: getTable
+      parameters:
+        - in: query
+          name: table_id
+          description: Table ID
+          schema:
+            type: string
+          required: true
+      responses:
+        200:
+          description: Table details retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    table_oid:
+                      type: string
+                    schema_name:
+                      type: string
+                    table_name:
+                      type: string
+                    table_comment:
+                      type: string
+                    column_name:
+                      type: string
+                    column_comment:
+                      type: string
+                    column_type:
+                      type: string
+                    constraint_type:
+                      type: string
+                    constraint_name:
+                      type: string
+                    primary_key_columns:
+                      type: array
+                      items:
+                        type: number
+                    foreign_table:
+                      type: string
+                    foreign_key_column:
+                      type: array
+                      items:
+                        type: number
+  /pg/v1/update-table:
+    post:
+      summary: Update an existing table
+      operationId: updateTable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                table_id:
+                  type: string
+                new_table_name:
+                  type: string
+      responses:
+        200:
+          description: Table updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string

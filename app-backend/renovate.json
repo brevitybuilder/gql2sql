@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base", "github>whitesource/merge-confidence:beta"],
+  "schedule": ["before 5am every weekday"],
+  "assignees": ["spencerbart", "nicksrandall"],
+  "baseBranches": ["dev"],
+  "automerge": true,
+  "major": {
+    "automerge": false
+  },
+  "labels": ["upgrade", "bot"]
+}
