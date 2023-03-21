@@ -6,6 +6,10 @@ on:
       - main
     tags-ignore:
       - '**'
+    paths:
+      - gql2sql/**
+      - gql2sql_node/**
+      - Cargo.lock
   pull_request:
 defaults:
   run:
