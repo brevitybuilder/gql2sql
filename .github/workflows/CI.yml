@@ -9,12 +9,10 @@ env:
       - main
     tags-ignore:
       - '**'
-    paths-ignore:
-      - '**/*.md'
-      - LICENSE
-      - '**/*.gitignore'
-      - .editorconfig
-      - docs/**
+    paths:
+      - gql2sql/**
+      - gql2sql_node/**
+      - Cargo.lock
   pull_request: null
 defaults:
   run:
