@@ -2,7 +2,11 @@
 name = "gql2sql"
 version = "0.1.0"
 edition = "2021"
-publish = false
+description = "GraphQL to SQL transpiler"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/brevitybuilder/gql2sql"
+repository = "https://github.com/brevitybuilder/gql2sql"
+readme = "../README.md"
 
 [dependencies]
 anyhow = "1.0"
