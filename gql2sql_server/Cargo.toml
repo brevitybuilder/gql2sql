@@ -12,7 +12,7 @@ serde = { version = "1.0.152", features = ["derive"] }
 serde_json = { version = "1.0.93", features = ["raw_value"] }
 graphql-parser = "0.4.0"
 jemallocator = "0.5.0"
-axum = { version = "0.6.9", features = ["headers"] }
+axum = { version = "0.6.12", features = ["headers"] }
 tokio = { version = "1.25", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
