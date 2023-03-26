@@ -1275,6 +1275,38 @@ fn get_sorted_json_params(parameters: &BTreeMap<String, (usize, DataType)>) -> V
     list.into_iter().map(|(k, _)| k).collect()
 }
 
+pub fn parse_meta<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, bool, bool) {
+    let mut is_aggregate = false;
+    let mut is_single = false;
+    let mut name = field.name.as_ref();
+    let key = field
+        .alias
+        .as_ref()
+        .map_or_else(|| field.name.as_ref().into(), |alias| alias.as_ref().into());
+
+    if name.ends_with("_aggregate") {
+        name = &name[..name.len() - 10];
+        is_aggregate = true;
+    } else if name.ends_with("_one") {
+        name = &name[..name.len() - 4];
+        is_single = true;
+    }
+
+    field.directives.iter().for_each(|directive| {
+        if directive.name.as_ref() == "meta" {
+            directive.arguments.iter().for_each(|argument| {
+                if argument.0.as_ref() == "table" {
+                    if let GqlValue::String(table) = &argument.1 {
+                        name = table.as_ref();
+                    }
+                }
+            });
+        }
+    });
+
+    return (name.to_string(), key, is_aggregate, is_single);
+}
+
 pub fn gql2sql<'a, T: Text<'a>>(
     ast: Document<'a, T>,
 ) -> Result<(Statement, Option<Vec<String>>), anyhow::Error> {
@@ -1293,11 +1325,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                     for selection in query.selection_set.items {
                         match selection {
                             Selection::Field(field) => {
-                                let mut name = field.name.as_ref();
-                                let key = field.alias.map_or_else(
-                                    || field.name.as_ref().into(),
-                                    |alias| alias.as_ref().into(),
-                                );
+                                let (name, key, is_aggregate, is_single) = parse_meta(&field);
                                 let (
                                     selection,
                                     distinct,
@@ -1306,8 +1334,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                     mut first,
                                     after,
                                 ) = parse_args(&field.arguments, &parameters);
-                                if name.ends_with("_aggregate") {
-                                    name = &name[..name.len() - 10];
+                                if is_aggregate {
                                     let aggs =
                                         get_aggregate_projection(&field.selection_set.items, BASE);
                                     let base_query = get_filter_query(
@@ -1349,18 +1376,15 @@ pub fn gql2sql<'a, T: Text<'a>>(
                                         },
                                     ));
                                 } else {
-                                    let mut is_single = false;
-                                    if name.ends_with("_one") {
-                                        name = &name[..name.len() - 4];
+                                    if is_single {
                                         first = Some(Expr::Value(Value::Number(
                                             "1".to_string(),
                                             false,
                                         )));
-                                        is_single = true;
                                     }
                                     let (projection, joins, merges) = get_projection(
                                         &field.selection_set.items,
-                                        name,
+                                        &name,
                                         Some(BASE),
                                         &parameters,
                                     );
@@ -1575,7 +1599,7 @@ mod tests {
     fn query() -> Result<(), anyhow::Error> {
         let gqlast = parse_query::<&str>(
             r#"query App {
-                app: App(filter: { id: { eq: "345810043118026832" } }, order: { name: ASC }) {
+                app(filter: { id: { eq: "345810043118026832" } }, order: { name: ASC }) @meta(table: "App") {
                     id
                     components @relation(table: "Component", field: ["appId"], references: ["id"]) {
                         id
