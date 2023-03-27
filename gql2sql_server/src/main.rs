@@ -37,9 +37,11 @@ use tracing::Level;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Query {
     query: String,
     variables: Option<Value>,
+    operation_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -76,8 +78,7 @@ async fn graphql<'a>(
     let gqlast = graphql_parser::query::parse_query::<String>(&payload.query).unwrap();
     meta.insert("parse".to_string(), start.elapsed().as_millis().to_string());
     let start = std::time::Instant::now();
-    let (statement, params) = gql2sql::gql2sql(gqlast).unwrap();
-    println!("statement: {}", statement);
+    let (statement, params) = gql2sql::gql2sql(gqlast, payload.operation_name).unwrap();
     meta.insert(
         "transform".to_string(),
         start.elapsed().as_millis().to_string(),

@@ -40,7 +40,7 @@ async fn main() -> Result<(), Error> {
     let handler_closure = move |event: Request| async move {
         if let Some(payload) = event.payload::<Query>().unwrap() {
             let gqlast = graphql_parser::query::parse_query::<String>(&payload.query).unwrap();
-            let (statement, params) = gql2sql::gql2sql(gqlast).unwrap();
+            let (statement, params) = gql2sql::gql2sql(gqlast, None).unwrap();
             let mut args = vec![];
             if let Some(Value::Object(mut map)) = payload.variables {
                 if let Some(params) = params {

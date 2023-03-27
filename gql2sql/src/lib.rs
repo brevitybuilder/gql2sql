@@ -7,10 +7,10 @@ use graphql_parser::query::{
 };
 use graphql_parser::schema::{Directive, Text, Type, Value as GqlValue};
 use sqlparser::ast::{
-    Assignment, BinaryOperator, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
+    Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
     Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
     SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
-    WildcardAdditionalOptions,
+    WildcardAdditionalOptions, With,
 };
 use std::collections::BTreeMap;
 use std::iter::zip;
@@ -1275,7 +1275,7 @@ fn get_sorted_json_params(parameters: &BTreeMap<String, (usize, DataType)>) -> V
     list.into_iter().map(|(k, _)| k).collect()
 }
 
-pub fn parse_meta<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, bool, bool) {
+pub fn parse_query_meta<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, bool, bool) {
     let mut is_aggregate = false;
     let mut is_single = false;
     let mut name = field.name.as_ref();
@@ -1300,15 +1300,220 @@ pub fn parse_meta<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, boo
                         name = table.as_ref();
                     }
                 }
+                if argument.0.as_ref() == "aggregate" {
+                    if let GqlValue::Boolean(aggregate) = &argument.1 {
+                        is_aggregate = *aggregate;
+                    }
+                }
+                if argument.0.as_ref() == "single" {
+                    if let GqlValue::Boolean(single) = &argument.1 {
+                        is_single = *single;
+                    }
+                }
             });
         }
     });
 
+    if is_aggregate && is_single {
+        panic!("Query cannot be both aggregate and single");
+    }
+
     return (name.to_string(), key, is_aggregate, is_single);
+}
+
+pub fn parse_mutation_meta<'a, T: Text<'a>>(field: &Field<'a, T>) -> (String, String, bool, bool) {
+    let mut is_insert = false;
+    let mut is_update = false;
+    let mut name = field.name.as_ref();
+    let key = field
+        .alias
+        .as_ref()
+        .map_or_else(|| field.name.as_ref().into(), |alias| alias.as_ref().into());
+
+    if name.starts_with("insert_") {
+        name = &name[7..];
+        is_insert = true;
+    } else if name.starts_with("update_") {
+        name = &name[7..];
+        is_update = true;
+    }
+
+    field.directives.iter().for_each(|directive| {
+        if directive.name.as_ref() == "meta" {
+            directive.arguments.iter().for_each(|argument| {
+                if argument.0.as_ref() == "table" {
+                    if let GqlValue::String(table) = &argument.1 {
+                        name = table.as_ref();
+                    }
+                }
+                if (argument.0.as_ref() == "insert" || argument.0.as_ref() == "update")
+                    && matches!(argument.1, GqlValue::Boolean(true))
+                {
+                    is_insert = argument.0.as_ref() == "insert";
+                    is_update = argument.0.as_ref() == "update";
+                }
+            });
+        }
+    });
+
+    if is_insert && is_update {
+        panic!("Mutation can not be both insert and update");
+    }
+
+    return (name.to_string(), key, is_insert, is_update);
+}
+
+pub fn wrap_mutation(key: String, value: Statement) -> Statement {
+    Statement::Query(Box::new(Query {
+        with: Some(With {
+            cte_tables: vec![Cte {
+                alias: TableAlias {
+                    name: Ident {
+                        value: "result".to_string(),
+                        quote_style: Some(QUOTE_CHAR),
+                    },
+                    columns: vec![],
+                },
+                query: Box::new(Query {
+                    with: None,
+                    body: Box::new(SetExpr::Insert(value)),
+                    order_by: vec![],
+                    limit: None,
+                    offset: None,
+                    fetch: None,
+                    locks: vec![],
+                }),
+                from: None,
+            }],
+            recursive: false,
+        }),
+        body: Box::new(SetExpr::Select(Box::new(Select {
+            distinct: false,
+            top: None,
+            into: None,
+            projection: vec![SelectItem::UnnamedExpr(Expr::Function(Function {
+                name: ObjectName(vec![Ident {
+                    value: JSON_BUILD_OBJECT.to_string(),
+                    quote_style: None,
+                }]),
+                args: vec![
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                        Value::SingleQuotedString(DATA_LABEL.to_string()),
+                    ))),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                        name: ObjectName(vec![Ident {
+                            value: JSON_BUILD_OBJECT.to_string(),
+                            quote_style: None,
+                        }]),
+                        args: vec![
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                Value::SingleQuotedString(key),
+                            ))),
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(
+                                Query {
+                                    with: None,
+                                    body: Box::new(SetExpr::Select(Box::new(Select {
+                                        distinct: false,
+                                        top: None,
+                                        projection: vec![SelectItem::UnnamedExpr(Expr::Function(
+                                            Function {
+                                                over: None,
+                                                distinct: false,
+                                                special: false,
+                                                name: ObjectName(vec![Ident {
+                                                    value: "coalesce".to_string(),
+                                                    quote_style: None,
+                                                }]),
+                                                args: vec![
+                                                    FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                                        Expr::Function(Function {
+                                                            name: ObjectName(vec![Ident {
+                                                                value: JSON_AGG.to_string(),
+                                                                quote_style: None,
+                                                            }]),
+                                                            args: vec![FunctionArg::Unnamed(
+                                                                FunctionArgExpr::Expr(
+                                                                    Expr::Identifier(Ident {
+                                                                        value: "result".to_string(),
+                                                                        quote_style: Some(
+                                                                            QUOTE_CHAR,
+                                                                        ),
+                                                                    }),
+                                                                ),
+                                                            )],
+                                                            over: None,
+                                                            distinct: false,
+                                                            special: false,
+                                                        }),
+                                                    )),
+                                                    FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                                        Expr::Value(Value::SingleQuotedString(
+                                                            "[]".to_string(),
+                                                        )),
+                                                    )),
+                                                ],
+                                            },
+                                        ))],
+                                        into: None,
+                                        from: vec![TableWithJoins {
+                                            relation: TableFactor::Table {
+                                                name: ObjectName(vec![Ident {
+                                                    value: "result".to_string(),
+                                                    quote_style: Some(QUOTE_CHAR),
+                                                }]),
+                                                alias: None,
+                                                args: None,
+                                                with_hints: vec![],
+                                            },
+                                            joins: vec![],
+                                        }],
+                                        lateral_views: Vec::new(),
+                                        selection: None,
+                                        group_by: Vec::new(),
+                                        cluster_by: Vec::new(),
+                                        distribute_by: Vec::new(),
+                                        sort_by: Vec::new(),
+                                        having: None,
+                                        qualify: None,
+                                    }))),
+                                    order_by: vec![],
+                                    limit: None,
+                                    offset: None,
+                                    fetch: None,
+                                    locks: vec![],
+                                },
+                            )))),
+                        ],
+                        over: None,
+                        distinct: false,
+                        special: false,
+                    }))),
+                ],
+                over: None,
+                distinct: false,
+                special: false,
+            }))],
+            from: vec![],
+            lateral_views: Vec::new(),
+            selection: None,
+            group_by: Vec::new(),
+            cluster_by: Vec::new(),
+            distribute_by: Vec::new(),
+            sort_by: Vec::new(),
+            having: None,
+            qualify: None,
+        }))),
+        order_by: vec![],
+        limit: None,
+        offset: None,
+        fetch: None,
+        locks: vec![],
+    }))
 }
 
 pub fn gql2sql<'a, T: Text<'a>>(
     ast: Document<'a, T>,
+    operation_name: Option<T::Value>,
 ) -> Result<(Statement, Option<Vec<String>>), anyhow::Error> {
     let mut statements = Vec::new();
     let mut parameters: BTreeMap<String, (usize, DataType)> = BTreeMap::new();
@@ -1316,6 +1521,13 @@ pub fn gql2sql<'a, T: Text<'a>>(
         match definition {
             Definition::Operation(operation) => match operation {
                 OperationDefinition::Query(query) => {
+                    if let Some(op_name) = &operation_name {
+                        if let Some(query_name) = &query.name {
+                            if query_name.as_ref() != op_name.as_ref() {
+                                continue;
+                            }
+                        }
+                    }
                     for (i, param) in query.variable_definitions.into_iter().enumerate() {
                         parameters.insert(
                             param.name.as_ref().into(),
@@ -1325,7 +1537,7 @@ pub fn gql2sql<'a, T: Text<'a>>(
                     for selection in query.selection_set.items {
                         match selection {
                             Selection::Field(field) => {
-                                let (name, key, is_aggregate, is_single) = parse_meta(&field);
+                                let (name, key, is_aggregate, is_single) = parse_query_meta(&field);
                                 let (
                                     selection,
                                     distinct,
@@ -1492,83 +1704,90 @@ pub fn gql2sql<'a, T: Text<'a>>(
                     return Ok((statement, None));
                 }
                 OperationDefinition::Mutation(mutation) => {
+                    if let Some(op_name) = &operation_name {
+                        if let Some(mutation_name) = &mutation.name {
+                            if mutation_name.as_ref() != op_name.as_ref() {
+                                continue;
+                            }
+                        }
+                    }
                     for selection in mutation.selection_set.items {
                         match selection {
                             Selection::Field(field) => {
-                                let mut name = field.name.as_ref();
-                                // let key = field.alias.map_or_else(
-                                //     || field.name.as_ref().into(),
-                                //     |alias| alias.as_ref().into(),
-                                // );
-                                if name.starts_with("insert_") {
-                                    name = &name[7..];
+                                let (name, key, is_insert, is_update) = parse_mutation_meta(&field);
+                                if is_insert {
                                     let (columns, rows) =
                                         get_mutation_columns(&field.arguments, &parameters);
                                     let (projection, _, _) = get_projection(
                                         &field.selection_set.items,
-                                        name,
+                                        &name,
                                         None,
                                         &parameters,
                                     );
                                     return Ok((
-                                        Statement::Insert {
-                                            or: None,
-                                            into: true,
-                                            table_name: ObjectName(vec![Ident {
-                                                value: name.to_string(),
-                                                quote_style: Some(QUOTE_CHAR),
-                                            }]),
-                                            columns,
-                                            overwrite: false,
-                                            source: Box::new(Query {
-                                                with: None,
-                                                body: Box::new(SetExpr::Values(Values {
-                                                    explicit_row: false,
-                                                    rows,
-                                                })),
-                                                order_by: vec![],
-                                                limit: None,
-                                                offset: None,
-                                                fetch: None,
-                                                locks: vec![],
-                                            }),
-                                            partitioned: None,
-                                            after_columns: vec![],
-                                            table: false,
-                                            on: None,
-                                            returning: Some(projection),
-                                        },
+                                        wrap_mutation(
+                                            key,
+                                            Statement::Insert {
+                                                or: None,
+                                                into: true,
+                                                table_name: ObjectName(vec![Ident {
+                                                    value: name.to_string(),
+                                                    quote_style: Some(QUOTE_CHAR),
+                                                }]),
+                                                columns,
+                                                overwrite: false,
+                                                source: Box::new(Query {
+                                                    with: None,
+                                                    body: Box::new(SetExpr::Values(Values {
+                                                        explicit_row: false,
+                                                        rows,
+                                                    })),
+                                                    order_by: vec![],
+                                                    limit: None,
+                                                    offset: None,
+                                                    fetch: None,
+                                                    locks: vec![],
+                                                }),
+                                                partitioned: None,
+                                                after_columns: vec![],
+                                                table: false,
+                                                on: None,
+                                                returning: Some(projection),
+                                            },
+                                        ),
                                         None,
                                     ));
-                                } else if name.starts_with("update_") {
-                                    name = &name[7..];
+                                } else if is_update {
                                     let (projection, _, _) = get_projection(
                                         &field.selection_set.items,
-                                        name,
+                                        &name,
                                         None,
                                         &parameters,
                                     );
                                     let (selection, assignments) =
                                         get_mutation_assignments(&field.arguments, &parameters);
                                     return Ok((
-                                        Statement::Update {
-                                            table: TableWithJoins {
-                                                relation: TableFactor::Table {
-                                                    name: ObjectName(vec![Ident {
-                                                        value: name.to_string(),
-                                                        quote_style: Some(QUOTE_CHAR),
-                                                    }]),
-                                                    alias: None,
-                                                    args: None,
-                                                    with_hints: vec![],
+                                        wrap_mutation(
+                                            key,
+                                            Statement::Update {
+                                                table: TableWithJoins {
+                                                    relation: TableFactor::Table {
+                                                        name: ObjectName(vec![Ident {
+                                                            value: name.to_string(),
+                                                            quote_style: Some(QUOTE_CHAR),
+                                                        }]),
+                                                        alias: None,
+                                                        args: None,
+                                                        with_hints: vec![],
+                                                    },
+                                                    joins: vec![],
                                                 },
-                                                joins: vec![],
+                                                assignments,
+                                                from: None,
+                                                selection,
+                                                returning: Some(projection),
                                             },
-                                            assignments,
-                                            from: None,
-                                            selection,
-                                            returning: Some(projection),
-                                        },
+                                        ),
                                         None,
                                     ));
                                 }
@@ -1619,12 +1838,21 @@ mod tests {
                     createdAt
                   }
                 }
-            }"#,
+            }
+            query Another {
+                Component_aggregate(filter: { appId: { eq: "345810043118026832" } }) {
+                  count
+                  min {
+                    createdAt
+                  }
+                }
+            }
+        "#,
         )?.clone();
         let sql = r#"SELECT json_build_object('app', (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base"."id", "components") AS "root"))), '[]') AS "root" FROM (SELECT * FROM "App" WHERE "id" = '345810043118026832' ORDER BY "name" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component"."id", "pageMeta", "elements") AS "root"))), '[]') AS "components" FROM (SELECT * FROM "Component" WHERE "Component"."appId" = "base"."id") AS "base.Component" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.Component.PageMeta"."id", "base.Component.PageMeta"."path") AS "root")) AS "pageMeta" FROM (SELECT * FROM "PageMeta" WHERE "PageMeta"."componentId" = "base.Component"."id" LIMIT 1) AS "base.Component.PageMeta") AS "root.PageMeta" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component.Element"."id", "base.Component.Element"."name") AS "root"))), '[]') AS "elements" FROM (SELECT * FROM "Element" WHERE "Element"."componentParentId" = "base.Component"."id" ORDER BY "order" ASC) AS "base.Component.Element") AS "root.Element" ON ('true')) AS "root.Component" ON ('true')), 'Component_aggregate', (SELECT json_build_object('count', COUNT(*), 'min', json_build_object('createdAt', MIN("createdAt"))) AS "root" FROM (SELECT * FROM "Component" WHERE "appId" = '345810043118026832') AS "base")) AS "data""#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql).unwrap();
-        let (statement, _params) = gql2sql(gqlast)?;
+        let (statement, _params) = gql2sql(gqlast, Some("App"))?;
         println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
@@ -1634,18 +1862,18 @@ mod tests {
     fn mutation_insert() -> Result<(), anyhow::Error> {
         let gqlast = parse_query::<&str>(
             r#"mutation insertVillains {
-                insert_Villain(data: [
+                insert(data: [
                     { name: "Ronan the Accuser" },
                     { name: "Red Skull" },
                     { name: "The Vulture" },
-                ]) { id name }
+                ]) @meta(table: "Villain", insert: true) { id name }
             }"#,
         )?
         .clone();
-        let sql = r#"INSERT INTO "Villain" ("name") VALUES ('Ronan the Accuser'), ('Red Skull'), ('The Vulture') RETURNING "id", "name""#;
+        let sql = r#"WITH "result" as (INSERT INTO "Villain" ("name") VALUES ('Ronan the Accuser'), ('Red Skull'), ('The Vulture') RETURNING "id", "name") SELECT json_build_object('data', json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast)?;
+        let (statement, _params) = gql2sql(gqlast, None)?;
         println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
@@ -1655,7 +1883,7 @@ mod tests {
     fn mutation_update() -> Result<(), anyhow::Error> {
         let gqlast = parse_query::<&str>(
             r#"mutation updateHero {
-                update_Hero(
+                update(
                     filter: { secret_identity: { eq: "Sam Wilson" }},
                     set: {
                         name: "Captain America",
@@ -1663,7 +1891,7 @@ mod tests {
                     increment: {
                         number_of_movies: 1
                     }
-                ) {
+                ) @meta(table: "Hero", update: true) {
                     id
                     name
                     secret_identity
@@ -1672,12 +1900,12 @@ mod tests {
             }"#,
         )?
         .clone();
-        let sql = r#"UPDATE "Hero" SET "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies""#;
-        let dialect = PostgreSqlDialect {};
-        let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast)?;
+        let sql = r#"WITH "result" AS (UPDATE "Hero" SET "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('data', json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
+        // let dialect = PostgreSqlDialect {};
+        // let sqlast = Parser::parse_sql(&dialect, sql)?;
+        let (statement, _params) = gql2sql(gqlast, None)?;
         println!("Statements:\n'{}'", statement);
-        assert_eq!(vec![statement], sqlast);
+        assert_eq!(statement.to_string(), sql);
         Ok(())
     }
 
@@ -1886,7 +2114,7 @@ mod tests {
         let sql = r#"UPDATE "Hero" SET "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies""#;
         let dialect = PostgreSqlDialect {};
         let _sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast)?;
+        let (statement, _params) = gql2sql(gqlast, None)?;
         println!("Statements:\n'{}'", statement);
         // assert_eq!(statements, sqlast);
         Ok(())
@@ -1916,7 +2144,7 @@ mod tests {
         .clone();
         // println!("ast {:#?}", gqlast);
         let sql = r#"SELECT json_build_object('component', (SELECT CAST(to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root")) AS jsonb) || CASE WHEN "root.ComponentMeta"."ComponentMeta" IS NOT NULL THEN to_jsonb("ComponentMeta") ELSE jsonb_build_object() END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.ComponentMeta"."title") AS "root")) AS "ComponentMeta" FROM (SELECT * FROM "ComponentMeta" WHERE "ComponentMeta"."componentId" = "base"."id" AND ("branch" = $2 OR "branch" = 'main') LIMIT 1) AS "base.ComponentMeta") AS "root.ComponentMeta" ON ('true'))) AS "data""#;
-        let (statement, _params) = gql2sql(gqlast)?;
+        let (statement, _params) = gql2sql(gqlast, None)?;
         println!("Statements:\n'{}'", statement);
         assert_eq!(sql, statement.to_string());
         Ok(())
@@ -1937,7 +2165,7 @@ mod tests {
         let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind") AS "root")) AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base")) AS "data""#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast)?;
+        let (statement, _params) = gql2sql(gqlast, None)?;
         println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
@@ -1971,7 +2199,7 @@ mod tests {
         )?
         .clone();
         let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind", "stuff") AS "root")) AS "root" FROM (SELECT * FROM (SELECT DISTINCT ON ("id") * FROM "Component" WHERE "id" = $1 AND ("branch" = $2 OR "branch" = 'main') ORDER BY "id" ASC, "branch" = $2 DESC LIMIT 1) AS sorter ORDER BY "orderKey" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Stuff"."id") AS "root"))), '[]') AS "stuff" FROM (SELECT * FROM "Stuff" WHERE "componentId" = "base"."id") AS "base.Stuff") AS "root.Stuff" ON ('true'))) AS "data""#;
-        let (statement, _params) = gql2sql(gqlast)?;
+        let (statement, _params) = gql2sql(gqlast, None)?;
         println!("Statements:\n'{}'", statement);
         assert_eq!(statement.to_string(), sql);
         Ok(())
