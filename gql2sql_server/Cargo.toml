@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 gql2sql = { path = "../gql2sql" }
 serde = { version = "1.0.158", features = ["derive"] }
-serde_json = { version = "1.0.94", features = ["raw_value"] }
+serde_json = { version = "1.0.95", features = ["raw_value"] }
 graphql-parser = "0.4.0"
 jemallocator = "0.5.0"
 axum = { version = "0.6.12", features = ["headers"] }
