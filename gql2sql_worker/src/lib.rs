@@ -7,7 +7,7 @@ use worker::*;
 #[serde(rename_all = "camelCase")]
 struct Query {
     query: String,
-		operation_name: Option<String>,
+    operation_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,10 +26,10 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
             let body = req.json::<Query>().await?;
             let gqlast = parse_query::<&str>(&body.query).unwrap();
             let (statement, params) = if let Some(op_name) = body.operation_name {
-							gql2sql_rs(gqlast, Some(&op_name)).unwrap()
-						} else {
-							gql2sql_rs(gqlast, None).unwrap()
-						};
+                gql2sql_rs(gqlast, Some(&op_name)).unwrap()
+            } else {
+                gql2sql_rs(gqlast, None).unwrap()
+            };
             Response::ok(
                 serde_json::to_string(&Gql2sql {
                     query: statement.to_string(),
