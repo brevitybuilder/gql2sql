@@ -890,7 +890,7 @@ fn get_relation<'a, T: Text<'a>>(
             for argument in &directive.arguments {
                 match argument.0.as_ref() {
                     "table" => relation = value_to_string(&argument.1),
-                    "field" => {
+                    "field" | "fields" => {
                         fk = match &argument.1 {
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
@@ -900,7 +900,7 @@ fn get_relation<'a, T: Text<'a>>(
                             _ => unimplemented!(),
                         }
                     }
-                    "references" => {
+                    "reference" | "references" => {
                         pk = match &argument.1 {
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
