@@ -577,7 +577,6 @@ fn get_join<'a, T: Text<'a>>(
             distinct_order,
         );
     if is_aggregate {
-        println!("is_aggregate, sub_path: {}, relation: {}", sub_path, relation);
         let aggs = get_aggregate_projection(selection_items);
         Join {
             relation: TableFactor::Derived {
@@ -1889,7 +1888,6 @@ mod tests {
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql).unwrap();
         let (statement, _params) = gql2sql(gqlast, Some("App"))?;
-        println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -1910,7 +1908,6 @@ mod tests {
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(gqlast, None)?;
-        println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -1940,7 +1937,6 @@ mod tests {
         // let dialect = PostgreSqlDialect {};
         // let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(gqlast, None)?;
-        println!("Statements:\n'{}'", statement);
         assert_eq!(statement.to_string(), sql);
         Ok(())
     }
@@ -2151,7 +2147,6 @@ mod tests {
         let dialect = PostgreSqlDialect {};
         let _sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(gqlast, None)?;
-        println!("Statements:\n'{}'", statement);
         // assert_eq!(statements, sqlast);
         Ok(())
     }
@@ -2178,10 +2173,8 @@ mod tests {
             }"#,
         )?
         .clone();
-        // println!("ast {:#?}", gqlast);
         let sql = r#"SELECT json_build_object('component', (SELECT CAST(to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root")) AS jsonb) || CASE WHEN "root.ComponentMeta"."ComponentMeta" IS NOT NULL THEN to_jsonb("ComponentMeta") ELSE jsonb_build_object() END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.ComponentMeta"."title") AS "root")) AS "ComponentMeta" FROM (SELECT * FROM "ComponentMeta" WHERE "ComponentMeta"."componentId" = "base"."id" AND ("branch" = $2 OR "branch" = 'main') LIMIT 1) AS "base.ComponentMeta") AS "root.ComponentMeta" ON ('true'))) AS "data""#;
         let (statement, _params) = gql2sql(gqlast, None)?;
-        println!("Statements:\n'{}'", statement);
         assert_eq!(sql, statement.to_string());
         Ok(())
     }
@@ -2202,7 +2195,6 @@ mod tests {
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(gqlast, None)?;
-        println!("Statements:\n'{}'", statement);
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -2236,7 +2228,6 @@ mod tests {
         .clone();
         let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind", "stuff") AS "root")) AS "root" FROM (SELECT * FROM (SELECT DISTINCT ON ("id") * FROM "Component" WHERE "id" = $1 AND ("branch" = $2 OR "branch" = 'main') ORDER BY "id" ASC, "branch" = $2 DESC LIMIT 1) AS sorter ORDER BY "orderKey" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Stuff"."id") AS "root"))), '[]') AS "stuff" FROM (SELECT * FROM "Stuff" WHERE "componentId" = "base"."id") AS "base.Stuff") AS "root.Stuff" ON ('true'))) AS "data""#;
         let (statement, _params) = gql2sql(gqlast, None)?;
-        println!("Statements:\n'{}'", statement);
         assert_eq!(statement.to_string(), sql);
         Ok(())
     }
@@ -2258,8 +2249,6 @@ mod tests {
         "#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        println!("ast:\n{:#?}", sqlast);
-        println!("back:\n{:#?}", sqlast[0].to_string());
         Ok(())
     }
 
@@ -2283,7 +2272,6 @@ mod tests {
         .clone();
         // let sql = r#""#;
         let (statement, _params) = gql2sql(gqlast, None)?;
-        println!("Statements:\n'{}'", statement);
         // assert_eq!(statement.to_string(), sql);
         Ok(())
     }
