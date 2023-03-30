@@ -17,31 +17,41 @@ struct Gql2sql {
 }
 
 #[event(fetch)]
-pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
+pub async fn main(request: Request, env: Env, ctx: worker::Context) -> Result<Response> {
     // Optionally, get more helpful error messages written to the console in the case of a panic.
     let router = Router::new();
-    router
+    let reponse = router
         .get("/", |_, _| Response::ok("Hello from Workers!"))
         .post_async("/graphql", |mut req, _| async move {
+						let cache = Cache::default();
+            if let Some(response) = cache.get(&req, false).await? {
+                return Ok(response);
+            }
             let body = req.json::<Query>().await?;
-            let gqlast = parse_query::<&str>(&body.query).unwrap();
-            let (statement, params) = if let Some(op_name) = body.operation_name {
-                gql2sql_rs(gqlast, Some(&op_name)).unwrap()
-            } else {
-                gql2sql_rs(gqlast, None).unwrap()
-            };
-            Response::ok(
-                serde_json::to_string(&Gql2sql {
-                    query: statement.to_string(),
-                    vars: params,
-                })
-                .unwrap(),
-            )
+            let gqlast = parse_query::<String>(&body.query).unwrap();
+            let (statement, params) = gql2sql_rs(gqlast, body.operation_name).unwrap();
+            let mut resp = Response::from_json(&Gql2sql {
+                query: statement.to_string(),
+                vars: params,
+            })?;
+            resp.headers_mut().set("cache-control", "max-age=86400")?;
+            //
+            return Ok(resp);
         })
         .get("/worker-version", |_, ctx| {
             let version = ctx.var("WORKERS_RS_VERSION")?.to_string();
             Response::ok(version)
         })
-        .run(req, env)
-        .await
+        .run(request.clone().unwrap(), env)
+        .await;
+
+		if let Ok(mut resp) = reponse {
+			let cache = Cache::default();
+			let cloned = resp.cloned()?;
+			ctx.wait_until(async move {
+				let _ = cache.put(&request, cloned).await;
+			});
+			return Ok(resp);
+		}
+		reponse
 }
