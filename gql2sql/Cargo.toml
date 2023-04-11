@@ -11,7 +11,11 @@ readme = "../README.md"
 [dependencies]
 anyhow = "1.0"
 graphql-parser = "0.4"
+async-graphql-parser = "5.0.7"
+async-graphql-value = "5.0.7"
+serde_json = "1.0.95"
 sqlparser = "0.32"
+indexmap = "1.9.3"
 
 [dev-dependencies]
 criterion = "0.4"
