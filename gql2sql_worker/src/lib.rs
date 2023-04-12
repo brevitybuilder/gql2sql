@@ -1,19 +1,21 @@
 use gql2sql::gql2sql as gql2sql_rs;
-use graphql_parser::query::parse_query;
+use async_graphql_parser::parse_query;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use worker::*;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Query {
     query: String,
+		variables: Option<Value>,
     operation_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Gql2sql {
     query: String,
-    vars: Option<Vec<String>>,
+    vars: Option<Vec<Value>>,
 }
 
 #[event(fetch)]
@@ -28,8 +30,8 @@ pub async fn main(request: Request, env: Env, ctx: worker::Context) -> Result<Re
                 return Ok(response);
             }
             let body = req.json::<Query>().await?;
-            let gqlast = parse_query::<String>(&body.query).unwrap();
-            let (statement, params) = gql2sql_rs(gqlast, body.operation_name).unwrap();
+            let gqlast = parse_query(&body.query).unwrap();
+            let (statement, params) = gql2sql_rs(gqlast, &body.variables, body.operation_name).unwrap();
             let mut resp = Response::from_json(&Gql2sql {
                 query: statement.to_string(),
                 vars: params,

@@ -63,7 +63,7 @@ struct APIResponse {
     meta: Option<BTreeMap<String, String>>,
 }
 
-async fn graphql<'a>(
+async fn graphql(
     State(pool): State<PgPool>,
     Json(payload): Json<Query>,
 ) -> Result<
@@ -75,41 +75,36 @@ async fn graphql<'a>(
 > {
     let mut meta = BTreeMap::new();
     let start = std::time::Instant::now();
-    let gqlast = graphql_parser::query::parse_query::<String>(&payload.query).unwrap();
+    let gqlast = async_graphql_parser::parse_query(&payload.query).unwrap();
     meta.insert("parse".to_string(), start.elapsed().as_millis().to_string());
     let start = std::time::Instant::now();
-    let (statement, params) = gql2sql::gql2sql(gqlast, payload.operation_name).unwrap();
+    let (statement, mut args) =
+        gql2sql::gql2sql(gqlast, &payload.variables, payload.operation_name).unwrap();
     meta.insert(
         "transform".to_string(),
         start.elapsed().as_millis().to_string(),
     );
     let start = std::time::Instant::now();
-    let mut args = vec![];
-    if let Some(Value::Object(mut map)) = payload.variables {
-        if params.is_some() {
-            params.unwrap().into_iter().for_each(|p| {
-                args.push(map.remove(&p).unwrap_or(Value::Null));
-            });
-        }
-    }
 
     let mut pg_args = PgArguments::default();
-    args.into_iter().for_each(|a| match a {
-        Value::String(s) => {
-            println!("string: {}", s);
-            pg_args.add(s);
-        }
-        Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                pg_args.add(i);
-            } else if let Some(f) = n.as_f64() {
-                pg_args.add(f);
+    if let Some(args) = args {
+        args.into_iter().for_each(|a| match a {
+            Value::String(s) => {
+                println!("string: {}", s);
+                pg_args.add(s);
             }
-        }
-        Value::Bool(b) => pg_args.add(b),
-        Value::Null => pg_args.add::<Option<String>>(None),
-        _ => panic!("Unsupported type"),
-    });
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    pg_args.add(i);
+                } else if let Some(f) = n.as_f64() {
+                    pg_args.add(f);
+                }
+            }
+            Value::Bool(b) => pg_args.add(b),
+            Value::Null => pg_args.add::<Option<String>>(None),
+            _ => panic!("Unsupported type"),
+        });
+    }
 
     let value: QueryResponse = sqlx::query_as_with(&statement.to_string(), pg_args)
         .fetch_one(&pool)

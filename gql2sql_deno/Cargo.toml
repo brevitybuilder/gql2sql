@@ -11,6 +11,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 gql2sql = { path = "../gql2sql" }
-graphql-parser = "0.4"
+async-graphql-parser = "5.0.7"
 deno_bindgen = "0.7.0"
 serde = { version = "1", features = ["derive"] }
