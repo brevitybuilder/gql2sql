@@ -4,8 +4,8 @@ use crate::consts::*;
 use anyhow::anyhow;
 use async_graphql_parser::{
     types::{
-        BaseType, Directive, DocumentOperations, ExecutableDocument, Field, OperationDefinition,
-        OperationType, Selection, Type, TypeCondition,
+        BaseType, Directive, DocumentOperations, ExecutableDocument, Field, OperationType,
+        Selection, Type,
     },
     Positioned,
 };
@@ -26,6 +26,7 @@ fn get_value<'a>(value: &'a GqlValue, parameters: &IndexMap<&'a str, DataType>) 
         GqlValue::Variable(v) => {
             let index = parameters
                 .get_index_of(v.as_ref())
+                .map(|i| i + 1)
                 .ok_or(anyhow!("variable not found"))?;
             Ok(Expr::Value(Value::Placeholder(format!("${}", index))))
         }
@@ -50,16 +51,19 @@ fn get_value<'a>(value: &'a GqlValue, parameters: &IndexMap<&'a str, DataType>) 
     }
 }
 
-fn get_op(op: &str) -> BinaryOperator {
-    match op {
+fn get_op(op: &str) -> AnyResult<BinaryOperator> {
+    let value = match op {
         "eq" | "equals" => BinaryOperator::Eq,
         "neq" | "not_equals" => BinaryOperator::NotEq,
         "lt" | "less_than" => BinaryOperator::Lt,
         "lte" | "less_than_or_equals" => BinaryOperator::LtEq,
         "gt" | "greater_than" => BinaryOperator::Gt,
         "gte" | "greater_than_or_equals" => BinaryOperator::GtEq,
-        _ => unimplemented!(),
-    }
+        _ => {
+            return Err(anyhow!("operator not supported: {}", op));
+        }
+    };
+    Ok(value)
 }
 
 fn get_expr<'a>(
@@ -87,7 +91,7 @@ fn get_expr<'a>(
                         escape_char: None,
                     })),
                     _ => {
-                        let op = get_op(op.as_ref());
+                        let op = get_op(op.as_ref())?;
                         Ok(Some(Expr::BinaryOp {
                             left: Box::new(left),
                             op,
@@ -101,7 +105,7 @@ fn get_expr<'a>(
                     .iter()
                     .rev()
                     .map(|(op, v)| {
-                        let op = get_op(op.as_ref());
+                        let op = get_op(op.as_ref())?;
                         let value = get_value(v, parameters)?;
                         Ok(Expr::BinaryOp {
                             left: Box::new(left.clone()),
@@ -109,8 +113,7 @@ fn get_expr<'a>(
                             right: Box::new(value),
                         })
                     })
-                    .filter_map(|v: AnyResult<Expr>| v.ok())
-                    .collect();
+                    .collect::<AnyResult<Vec<Expr>>>()?;
                 let mut last_expr = conditions.remove(0);
                 for condition in conditions {
                     let expr = Expr::BinaryOp {
@@ -140,14 +143,17 @@ fn handle_filter_arg<'a>(
                 _ => None,
             },
             _ => {
-                let mut conditions: Vec<Expr> = list
+                let mut conditions = list
                     .iter()
                     .map(|v| match v {
                         GqlValue::Object(o) => get_filter(o, parameters),
                         _ => Ok(None),
                     })
-                    .filter_map(|v| v.ok().flatten())
-                    .collect();
+                    .collect::<AnyResult<Vec<Option<Expr>>>>()?
+                    .into_iter()
+                    .filter_map(|v| v)
+                    .collect::<Vec<Expr>>();
+
                 let mut last_expr = conditions.remove(0);
                 for condition in conditions {
                     let expr = Expr::BinaryOp {
@@ -167,14 +173,16 @@ fn handle_filter_arg<'a>(
                 _ => None,
             },
             _ => {
-                let mut conditions: Vec<Expr> = list
+                let mut conditions = list
                     .iter()
                     .map(|v| match v {
                         GqlValue::Object(o) => get_filter(o, parameters),
                         _ => Ok(None),
                     })
-                    .filter_map(|v| v.ok().flatten())
-                    .collect();
+                    .collect::<AnyResult<Vec<Option<Expr>>>>()?
+                    .into_iter()
+                    .filter_map(|v| v)
+                    .collect::<Vec<Expr>>();
                 let mut last_expr = conditions.remove(0);
                 for condition in conditions {
                     let expr = Expr::BinaryOp {
@@ -213,7 +221,9 @@ fn get_filter<'a>(
                 .into_iter()
                 .rev()
                 .map(|(key, value)| handle_filter_arg(key, value, parameters))
-                .filter_map(|v| v.ok().flatten())
+                .collect::<AnyResult<Vec<Option<Expr>>>>()?
+                .into_iter()
+                .filter_map(|v| v)
                 .collect();
             if conditions.is_empty() {
                 return Ok(None);
@@ -504,18 +514,28 @@ fn get_agg_agg_projection<'a>(field: &'a Field) -> Vec<FunctionArg> {
     }
 }
 
-fn get_aggregate_projection<'a>(items: &'a Vec<Positioned<Selection>>) -> Vec<FunctionArg> {
+fn get_aggregate_projection<'a>(
+    items: &'a Vec<Positioned<Selection>>,
+) -> AnyResult<Vec<FunctionArg>> {
     let mut aggs = Vec::new();
     for selection in items {
         match &selection.node {
             Selection::Field(field) => {
                 aggs.extend(get_agg_agg_projection(&field.node));
             }
-            Selection::FragmentSpread(_) => unimplemented!(),
-            Selection::InlineFragment(_) => unimplemented!(),
+            Selection::FragmentSpread(_) => {
+                return Err(anyhow!(
+                    "Fragment spread is not supported in aggregate query"
+                ));
+            }
+            Selection::InlineFragment(_) => {
+                return Err(anyhow!(
+                    "Inline fragment is not supported in aggregate query"
+                ));
+            }
         }
     }
-    aggs
+    Ok(aggs)
 }
 
 fn get_join<'a>(
@@ -525,23 +545,24 @@ fn get_join<'a>(
     path: Option<&'a str>,
     name: &'a str,
     parameters: &IndexMap<&'a str, DataType>,
+    variables: &Option<serde_json::Value>,
 ) -> AnyResult<Join> {
     let (selection, distinct, distinct_order, order_by, mut first, after) =
-        parse_args(arguments, parameters)?;
-    let (relation, fks, pks, is_single, is_aggregate) = get_relation(directives);
+        parse_args(arguments, parameters, variables)?;
+    let (relation, fks, pks, is_single, is_aggregate) = get_relation(directives)?;
     if is_single {
         first = Some(Expr::Value(Value::Number("1".to_string(), false)));
     }
-    let sub_path = path.map_or_else(|| relation.clone(), |v| v.to_string() + "." + &relation);
+    let sub_path = path.map_or_else(|| relation.to_string(), |v| format!("{}.{}", v, relation));
     let join_filter = zip(pks, fks)
         .map(|(pk, fk)| Expr::BinaryOp {
             left: Box::new(Expr::CompoundIdentifier(vec![
                 Ident {
-                    value: relation.clone(),
+                    value: relation.to_string(),
                     quote_style: Some(QUOTE_CHAR),
                 },
                 Ident {
-                    value: fk,
+                    value: fk.to_string(),
                     quote_style: Some(QUOTE_CHAR),
                 },
             ])),
@@ -552,7 +573,7 @@ fn get_join<'a>(
                     quote_style: Some(QUOTE_CHAR),
                 },
                 Ident {
-                    value: pk,
+                    value: pk.to_string(),
                     quote_style: Some(QUOTE_CHAR),
                 },
             ])),
@@ -580,12 +601,12 @@ fn get_join<'a>(
         order_by,
         first,
         after,
-        relation.clone(),
+        &relation,
         distinct,
         distinct_order,
     );
     if is_aggregate {
-        let aggs = get_aggregate_projection(selection_items);
+        let aggs = get_aggregate_projection(selection_items)?;
         Ok(Join {
             relation: TableFactor::Derived {
                 lateral: true,
@@ -630,7 +651,7 @@ fn get_join<'a>(
         })
     } else {
         let (sub_projection, sub_joins, merges) =
-            get_projection(selection_items, &relation, Some(&sub_path), parameters)?;
+            get_projection(selection_items, &relation, Some(&sub_path), parameters, variables)?;
         Ok(Join {
             relation: TableFactor::Derived {
                 lateral: true,
@@ -718,6 +739,7 @@ fn get_projection<'a>(
     relation: &'a str,
     path: Option<&'a str>,
     parameters: &IndexMap<&'a str, DataType>,
+    variables: &Option<serde_json::Value>,
 ) -> AnyResult<(Vec<SelectItem>, Vec<Join>, Vec<Merge>)> {
     let mut projection = Vec::new();
     let mut joins = Vec::new();
@@ -735,6 +757,7 @@ fn get_projection<'a>(
                         path,
                         &field.name.node,
                         parameters,
+                        variables,
                     )?;
                     joins.push(join);
                     projection.push(SelectItem::UnnamedExpr(Expr::Identifier(Ident {
@@ -822,7 +845,7 @@ fn get_projection<'a>(
                         .iter()
                         .find(|d| d.node.name.node.as_ref() == "relation");
                     let (relation, _fks, _pks, _is_single, _is_aggregate) =
-                        get_relation(&frag.directives);
+                        get_relation(&frag.directives)?;
                     let join = get_join(
                         args.map_or(&vec![], |dir| &dir.node.arguments),
                         &frag.directives,
@@ -830,6 +853,7 @@ fn get_projection<'a>(
                         path,
                         name,
                         parameters,
+                        variables,
                     )?;
                     joins.push(join);
                     merges.push(Merge {
@@ -861,32 +885,41 @@ fn get_projection<'a>(
                     })
                 }
             }
-            Selection::FragmentSpread(_) => unimplemented!(),
+            Selection::FragmentSpread(_) => {
+                return Err(anyhow!("Fragment spread is not supported"));
+            }
         }
     }
     Ok((projection, joins, merges))
 }
 
-fn value_to_string(value: &GqlValue) -> String {
-    match value {
+fn value_to_string<'a>(value: &'a GqlValue) -> AnyResult<String> {
+    let output = match value {
         GqlValue::String(s) => s.clone(),
         GqlValue::Number(f) => f.to_string(),
         GqlValue::Boolean(b) => b.to_string(),
-        GqlValue::Enum(e) => e.as_ref().into(),
+        GqlValue::Enum(e) => e.to_string(),
         GqlValue::List(l) => l
             .iter()
-            .map(|v| value_to_string(v))
-            .collect::<Vec<String>>()
+            .map(value_to_string)
+            .collect::<AnyResult<Vec<String>>>()?
             .join(","),
-        GqlValue::Null => "null".to_string(),
-        _ => unimplemented!(),
-    }
+        GqlValue::Null => "null".to_owned(),
+        GqlValue::Object(obj) => serde_json::to_string(obj).unwrap(),
+        GqlValue::Variable(name) => {
+            return Err(anyhow!("Variable {} is not supported", name));
+        }
+        GqlValue::Binary(_) => {
+            return Err(anyhow!("Binary value is not supported"));
+        }
+    };
+    Ok(output)
 }
 
 fn get_relation<'a>(
-    directives: &Vec<Positioned<Directive>>,
-) -> (String, Vec<String>, Vec<String>, bool, bool) {
-    let mut relation: String = "".to_owned();
+    directives: &'a Vec<Positioned<Directive>>,
+) -> AnyResult<(String, Vec<String>, Vec<String>, bool, bool)> {
+    let mut relation: String = "".to_string();
     let mut fk = vec![];
     let mut pk = vec![];
     let mut is_single = false;
@@ -902,15 +935,17 @@ fn get_relation<'a>(
                 let name = name.node.as_str();
                 let value = &value.node;
                 match name {
-                    "table" => relation = value_to_string(value),
+                    "table" => relation = value_to_string(value)?,
                     "field" | "fields" => {
                         fk = match &value {
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(|v| value_to_string(v))
-                                .collect::<Vec<String>>(),
-                            _ => unimplemented!(),
+                                .map(value_to_string)
+                                .collect::<AnyResult<Vec<String>>>()?,
+                            _ => {
+                                return Err(anyhow!("Invalid value for field in relation"));
+                            }
                         }
                     }
                     "reference" | "references" => {
@@ -918,9 +953,11 @@ fn get_relation<'a>(
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(|v| value_to_string(v))
-                                .collect::<Vec<String>>(),
-                            _ => unimplemented!(),
+                                .map(value_to_string)
+                                .collect::<AnyResult<Vec<String>>>()?,
+                            _ => {
+                                return Err(anyhow!("Invalid value for reference in relation"));
+                            }
                         }
                     }
                     "single" => {
@@ -938,7 +975,7 @@ fn get_relation<'a>(
             }
         }
     }
-    (relation, fk, pk, is_single, is_aggregate)
+    Ok((relation, fk, pk, is_single, is_aggregate))
 }
 
 fn get_filter_query<'a>(
@@ -946,7 +983,7 @@ fn get_filter_query<'a>(
     order_by: Vec<OrderByExpr>,
     first: Option<Expr>,
     after: Option<Offset>,
-    table_name: String,
+    table_name: &'a str,
     distinct: Option<Vec<&'a str>>,
     distinct_order: Option<Vec<OrderByExpr>>,
 ) -> Query {
@@ -987,7 +1024,7 @@ fn get_filter_query<'a>(
             from: vec![TableWithJoins {
                 relation: TableFactor::Table {
                     name: ObjectName(vec![Ident {
-                        value: table_name,
+                        value: table_name.to_string(),
                         quote_style: Some(QUOTE_CHAR),
                     }]),
                     alias: None,
@@ -1011,7 +1048,7 @@ fn get_filter_query<'a>(
         fetch: None,
         locks: vec![],
     };
-    if has_distinct_order && order_by.len() > 0 {
+    if has_distinct_order && !order_by.is_empty() {
         Query {
             with: None,
             body: Box::new(SetExpr::Select(Box::new(Select {
@@ -1068,7 +1105,9 @@ fn get_order<'a>(
                     let s: &str = e.as_ref();
                     asc = Some(s == "ASC");
                 }
-                _ => unimplemented!(),
+                _ => {
+                    return Err(anyhow!("Invalid value for order direction"));
+                }
             }
         }
         if let Some(expr) = order.get("expr") {
@@ -1092,7 +1131,9 @@ fn get_order<'a>(
                         }]);
                     }
                 }
-                _ => unimplemented!(),
+                _ => {
+                    return Err(anyhow!("Invalid value for order expression"));
+                }
             }
         }
     }
@@ -1120,7 +1161,7 @@ fn get_order<'a>(
                     nulls_first: None,
                 });
             }
-            _ => unimplemented!(),
+            _ => return Err(anyhow!("Invalid value for order expression")),
         }
     }
     Ok(order_by)
@@ -1142,9 +1183,29 @@ fn get_distinct<'a>(distinct: &'a Vec<GqlValue>) -> Option<Vec<&'a str>> {
     }
 }
 
+fn json_to_gql_value(value: &serde_json::Value) -> GqlValue {
+    match value {
+        serde_json::Value::Null => GqlValue::Null,
+        serde_json::Value::Bool(b) => GqlValue::Boolean(b.clone()),
+        serde_json::Value::Number(n) => GqlValue::Number(n.clone()),
+        serde_json::Value::String(s) => GqlValue::String(s.clone()),
+        serde_json::Value::Array(a) => GqlValue::List(
+            a.into_iter()
+                .map(|v| json_to_gql_value(v))
+                .collect::<Vec<GqlValue>>(),
+        ),
+        serde_json::Value::Object(o) => GqlValue::Object(
+            o.into_iter()
+                .map(|(k, v)| (Name::new(k), json_to_gql_value(v)))
+                .collect::<IndexMap<Name, GqlValue>>(),
+        ),
+    }
+}
+
 fn parse_args<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
     parameters: &IndexMap<&'a str, DataType>,
+    variables: &Option<serde_json::Value>,
 ) -> AnyResult<(
     Option<Expr>,
     Option<Vec<&'a str>>,
@@ -1177,16 +1238,33 @@ fn parse_args<'a>(
                     }
                     Some(GqlValue::List(list)) => {
                         let order = list
-                            .into_iter()
+                            .iter()
                             .filter_map(|v| match v {
                                 GqlValue::Object(o) => Some(o),
                                 _ => None,
                             })
-                            .map(|o| get_order(&o, parameters))
+                            .map(|o| get_order(o, parameters))
                             .collect::<AnyResult<Vec<Vec<OrderByExpr>>>>()?;
                         distinct_order = Some(order.into_iter().flatten().collect());
                     }
-                    _ => unimplemented!(),
+                    _ => {
+                        return Err(anyhow!("Invalid value for distinct order"));
+                    }
+                }
+            }
+            ("order", GqlValue::Variable(name)) => {
+                if let Some(variables) = variables {
+                    if let Some(values) = variables.get(name.as_str()) {
+                        if let GqlValue::Object(value) = json_to_gql_value(values) {
+                            order_by = get_order(&value, parameters)?;
+                        } else {
+                            return Err(anyhow!("Invalid value for order"));
+                        }
+                    } else {
+                        return Err(anyhow!("Invalid value for order"));
+                    }
+                } else {
+                    return Err(anyhow!("Invalid value for order"));
                 }
             }
             ("order", GqlValue::Object(order)) => {
@@ -1194,14 +1272,20 @@ fn parse_args<'a>(
             }
             ("order", GqlValue::List(list)) => {
                 let items = list
-                    .into_iter()
+                    .iter()
                     .filter_map(|v| match v {
                         GqlValue::Object(o) => Some(o),
                         _ => None,
                     })
-                    .map(|o| get_order(&o, parameters))
+                    .map(|o| get_order(o, parameters))
                     .collect::<AnyResult<Vec<Vec<OrderByExpr>>>>()?;
-                order_by.append(items.into_iter().flatten().collect::<Vec<OrderByExpr>>().as_mut())
+                order_by.append(
+                    items
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<OrderByExpr>>()
+                        .as_mut(),
+                )
             }
             ("first", GqlValue::Number(count)) => {
                 first = Some(Expr::Value(Value::Number(
@@ -1218,7 +1302,9 @@ fn parse_args<'a>(
                     rows: OffsetRows::None,
                 });
             }
-            _ => {}
+            _ => {
+                return Err(anyhow!("Invalid argument for: {}", key));
+            }
         }
     }
     Ok((selection, distinct, distinct_order, order_by, first, after))
@@ -1241,7 +1327,7 @@ fn get_mutation_columns<'a>(
                         value: key.to_string(),
                         quote_style: Some(QUOTE_CHAR),
                     });
-                    row.push(get_value(value, parameters)? );
+                    row.push(get_value(value, parameters)?);
                 }
                 rows.push(row);
             }
@@ -1317,18 +1403,22 @@ fn get_mutation_assignments<'a>(
     Ok((selection, assignments))
 }
 
-fn get_data_type(var_type: &Type) -> DataType {
-    match var_type.base {
+fn get_data_type(var_type: &Type) -> AnyResult<DataType> {
+    let value = match var_type.base {
         BaseType::Named(ref name) => match name.as_str() {
             "Int" => DataType::Int(None),
             "Float" => DataType::Float(None),
             "String" => DataType::Text,
             "Boolean" => DataType::Boolean,
             "ID" => DataType::Text,
-            _ => unimplemented!(),
+            "DateTime" => DataType::Timestamp(Some(3), sqlparser::ast::TimezoneInfo::WithTimeZone),
+            _ => DataType::JSON,
         },
-        BaseType::List(_) => unimplemented!(),
-    }
+        BaseType::List(_) => {
+            return Err(anyhow!("List data type is not supported for variables"));
+        }
+    };
+    Ok(value)
 }
 
 pub fn parse_query_meta<'a>(field: &'a Field) -> (&'a str, &'a str, bool, bool) {
@@ -1376,7 +1466,7 @@ pub fn parse_query_meta<'a>(field: &'a Field) -> (&'a str, &'a str, bool, bool) 
         panic!("Query cannot be both aggregate and single");
     }
 
-    return (name, key, is_aggregate, is_single);
+    (name, key, is_aggregate, is_single)
 }
 
 pub fn parse_mutation_meta<'a>(field: &'a Field) -> (&'a str, &'a str, bool, bool) {
@@ -1424,7 +1514,7 @@ pub fn parse_mutation_meta<'a>(field: &'a Field) -> (&'a str, &'a str, bool, boo
         panic!("Mutation can not be both insert and update");
     }
 
-    return (name, key, is_insert, is_update);
+    (name, key, is_insert, is_update)
 }
 
 pub fn wrap_mutation<'a>(key: &'a str, value: Statement) -> Statement {
@@ -1577,6 +1667,7 @@ pub fn wrap_mutation<'a>(key: &'a str, value: Statement) -> Statement {
 
 pub fn gql2sql<'a>(
     ast: ExecutableDocument,
+    variables: &Option<serde_json::Value>,
     operation_name: Option<&'a str>,
 ) -> Result<(Statement, Option<Vec<String>>), anyhow::Error> {
     let mut statements = Vec::new();
@@ -1587,20 +1678,25 @@ pub fn gql2sql<'a>(
             if let Some(name) = operation_name {
                 map.get(name)
                     .ok_or_else(|| anyhow::anyhow!("Operation {} not found in the document", name))?
-                    .node.clone()
+                    .node
+                    .clone()
             } else {
-                map.values().next().ok_or_else(|| {
-                    anyhow::anyhow!("No operation found in the document, please specify one")
-                })?.node.clone()
+                map.values()
+                    .next()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("No operation found in the document, please specify one")
+                    })?
+                    .node
+                    .clone()
             }
         }
     };
 
     match operation.ty {
         OperationType::Query => {
-            for  param in operation.variable_definitions.iter() {
+            for param in operation.variable_definitions.iter() {
                 let ptype = &param.node.var_type.node;
-                parameters.insert(param.node.name.node.as_str(), get_data_type(&ptype));
+                parameters.insert(param.node.name.node.as_str(), get_data_type(ptype)?);
             }
             for selection in &operation.selection_set.node.items {
                 match &selection.node {
@@ -1608,7 +1704,7 @@ pub fn gql2sql<'a>(
                         let field = &p_field.node;
                         let (name, key, is_aggregate, is_single) = parse_query_meta(field);
                         let (selection, distinct, distinct_order, order_by, mut first, after) =
-                            parse_args(&field.arguments, &parameters)?;
+                            parse_args(&field.arguments, &parameters, &variables)?;
                         if is_single {
                             first = Some(Expr::Value(Value::Number("1".to_string(), false)));
                         }
@@ -1617,12 +1713,12 @@ pub fn gql2sql<'a>(
                             order_by,
                             first,
                             after,
-                            name.to_owned(),
+                            name,
                             distinct,
                             distinct_order,
                         );
                         if is_aggregate {
-                            let aggs = get_aggregate_projection(&field.selection_set.node.items);
+                            let aggs = get_aggregate_projection(&field.selection_set.node.items)?;
                             statements.push((
                                 key,
                                 Query {
@@ -1644,7 +1740,7 @@ pub fn gql2sql<'a>(
                                             joins: vec![],
                                         }],
                                         None,
-                                        &ROOT_LABEL,
+                                        ROOT_LABEL,
                                     )),
                                     order_by: vec![],
                                     limit: None,
@@ -1656,9 +1752,10 @@ pub fn gql2sql<'a>(
                         } else {
                             let (projection, joins, merges) = get_projection(
                                 &field.selection_set.node.items,
-                                &name,
+                                name,
                                 Some(BASE),
                                 &parameters,
+                                variables,
                             )?;
                             let root_query = get_root_query(
                                 projection,
@@ -1679,7 +1776,7 @@ pub fn gql2sql<'a>(
                                 None,
                                 merges,
                                 is_single,
-                                &ROOT_LABEL,
+                                ROOT_LABEL,
                             );
                             statements.push((
                                 key,
@@ -1695,10 +1792,71 @@ pub fn gql2sql<'a>(
                             ));
                         };
                     }
-                    Selection::FragmentSpread(_) => unimplemented!(),
-                    Selection::InlineFragment(_) => unimplemented!(),
+                    Selection::FragmentSpread(_) => {
+                        return Err(anyhow::anyhow!("Fragment not supported"))
+                    }
+                    Selection::InlineFragment(_) => {
+                        return Err(anyhow::anyhow!("Fragment not supported"))
+                    }
                 }
             }
+            let statement = Statement::Query(Box::new(Query {
+                with: None,
+                body: Box::new(SetExpr::Select(Box::new(Select {
+                    distinct: false,
+                    top: None,
+                    into: None,
+                    projection: vec![SelectItem::ExprWithAlias {
+                        alias: Ident {
+                            value: DATA_LABEL.into(),
+                            quote_style: Some(QUOTE_CHAR),
+                        },
+                        expr: Expr::Function(Function {
+                            name: ObjectName(vec![Ident {
+                                value: JSON_BUILD_OBJECT.to_string(),
+                                quote_style: None,
+                            }]),
+                            args: statements
+                                .into_iter()
+                                .flat_map(|(key, query)| {
+                                    vec![
+                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                            Value::SingleQuotedString(key.to_string()),
+                                        ))),
+                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                            Expr::Subquery(Box::new(query)),
+                                        )),
+                                    ]
+                                })
+                                .collect(),
+                            over: None,
+                            distinct: false,
+                            special: false,
+                        }),
+                    }],
+                    from: vec![],
+                    lateral_views: Vec::new(),
+                    selection: None,
+                    group_by: Vec::new(),
+                    cluster_by: Vec::new(),
+                    distribute_by: Vec::new(),
+                    sort_by: Vec::new(),
+                    having: None,
+                    qualify: None,
+                }))),
+                order_by: vec![],
+                limit: None,
+                offset: None,
+                fetch: None,
+                locks: vec![],
+            }));
+            if !parameters.is_empty() {
+                return Ok((
+                    statement,
+                    Some(parameters.into_keys().map(|k| k.to_string()).collect()),
+                ));
+            }
+            return Ok((statement, None));
         }
         OperationType::Mutation => {
             for selection in operation.selection_set.node.items {
@@ -1714,6 +1872,7 @@ pub fn gql2sql<'a>(
                                 name,
                                 None,
                                 &parameters,
+                                variables,
                             )?;
                             return Ok((
                                 wrap_mutation(
@@ -1751,9 +1910,10 @@ pub fn gql2sql<'a>(
                         } else if is_update {
                             let (projection, _, _) = get_projection(
                                 &field.selection_set.node.items,
-                                &name,
+                                name,
                                 None,
                                 &parameters,
+                                variables,
                             )?;
                             let (selection, assignments) =
                                 get_mutation_assignments(&field.arguments, &parameters)?;
@@ -1783,12 +1943,16 @@ pub fn gql2sql<'a>(
                             ));
                         }
                     }
-                    Selection::FragmentSpread(_) => unimplemented!(),
-                    Selection::InlineFragment(_) => unimplemented!(),
+                    Selection::FragmentSpread(_) => {
+                        return Err(anyhow::anyhow!("Fragment not supported"))
+                    }
+                    Selection::InlineFragment(_) => {
+                        return Err(anyhow::anyhow!("Fragment not supported"))
+                    }
                 }
             }
         }
-        OperationType::Subscription => unimplemented!(),
+        OperationType::Subscription => return Err(anyhow::anyhow!("Subscription not supported")),
     }
     Err(anyhow!("No operation found"))
 }
@@ -1798,6 +1962,7 @@ mod tests {
     use super::*;
     use async_graphql_parser::parse_query;
     use pretty_assertions::assert_eq;
+    use serde_json::json;
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
@@ -1835,11 +2000,11 @@ mod tests {
                 }
             }
         "#,
-        )?.clone();
+        )?;
         let sql = r#"SELECT json_build_object('app', (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base"."id", "components") AS "root"))), '[]') AS "root" FROM (SELECT * FROM "App" WHERE "id" = '345810043118026832' ORDER BY "name" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component"."id", "pageMeta", "elements") AS "root"))), '[]') AS "components" FROM (SELECT * FROM "Component" WHERE "Component"."appId" = "base"."id") AS "base.Component" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.Component.PageMeta"."id", "base.Component.PageMeta"."path") AS "root")) AS "pageMeta" FROM (SELECT * FROM "PageMeta" WHERE "PageMeta"."componentId" = "base.Component"."id" LIMIT 1) AS "base.Component.PageMeta") AS "root.PageMeta" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component.Element"."id", "base.Component.Element"."name") AS "root"))), '[]') AS "elements" FROM (SELECT * FROM "Element" WHERE "Element"."componentParentId" = "base.Component"."id" ORDER BY "order" ASC) AS "base.Component.Element") AS "root.Element" ON ('true')) AS "root.Component" ON ('true')), 'Component_aggregate', (SELECT json_build_object('count', COUNT(*), 'min', json_build_object('createdAt', MIN("createdAt"))) AS "root" FROM (SELECT * FROM "Component" WHERE "appId" = '345810043118026832') AS "base")) AS "data""#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql).unwrap();
-        let (statement, _params) = gql2sql(gqlast, Some("App"))?;
+        let (statement, _params) = gql2sql(gqlast, &None, Some("App"))?;
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -1854,12 +2019,11 @@ mod tests {
                     { name: "The Vulture" },
                 ]) @meta(table: "Villain", insert: true) { id name }
             }"#,
-        )?
-        .clone();
+        )?;
         let sql = r#"WITH "result" as (INSERT INTO "Villain" ("name") VALUES ('Ronan the Accuser'), ('Red Skull'), ('The Vulture') RETURNING "id", "name") SELECT json_build_object('data', json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast, None)?;
+        let (statement, _params) = gql2sql(gqlast, &None, None)?;
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -1883,12 +2047,11 @@ mod tests {
                     number_of_movies
                 }
             }"#,
-        )?
-        .clone();
+        )?;
         let sql = r#"WITH "result" AS (UPDATE "Hero" SET "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('data', json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
         // let dialect = PostgreSqlDialect {};
         // let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast, None)?;
+        let (statement, _params) = gql2sql(gqlast, &None, None)?;
         assert_eq!(statement.to_string(), sql);
         Ok(())
     }
@@ -2093,12 +2256,11 @@ mod tests {
       }
     }
 "#,
-        )?
-        .clone();
+        )?;
         let sql = r#"UPDATE "Hero" SET "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies""#;
         let dialect = PostgreSqlDialect {};
         let _sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast, None)?;
+        let (_statement, _params) = gql2sql(gqlast, &None, None)?;
         // assert_eq!(statements, sqlast);
         Ok(())
     }
@@ -2123,10 +2285,9 @@ mod tests {
                    }
                 }
             }"#,
-        )?
-        .clone();
+        )?;
         let sql = r#"SELECT json_build_object('component', (SELECT CAST(to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root")) AS jsonb) || CASE WHEN "root.ComponentMeta"."ComponentMeta" IS NOT NULL THEN to_jsonb("ComponentMeta") ELSE jsonb_build_object() END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.ComponentMeta"."title") AS "root")) AS "ComponentMeta" FROM (SELECT * FROM "ComponentMeta" WHERE "ComponentMeta"."componentId" = "base"."id" AND ("branch" = $2 OR "branch" = 'main') LIMIT 1) AS "base.ComponentMeta") AS "root.ComponentMeta" ON ('true'))) AS "data""#;
-        let (statement, _params) = gql2sql(gqlast, None)?;
+        let (statement, _params) = gql2sql(gqlast, &None, None)?;
         assert_eq!(sql, statement.to_string());
         Ok(())
     }
@@ -2141,12 +2302,11 @@ mod tests {
                    kind @static(value: "page")
                 }
             }"#,
-        )?
-        .clone();
+        )?;
         let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind") AS "root")) AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base")) AS "data""#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast, None)?;
+        let (statement, _params) = gql2sql(gqlast, &None, None)?;
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -2176,10 +2336,9 @@ mod tests {
                    }
                 }
             }"#,
-        )?
-        .clone();
+        )?;
         let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind", "stuff") AS "root")) AS "root" FROM (SELECT * FROM (SELECT DISTINCT ON ("id") * FROM "Component" WHERE "id" = $1 AND ("branch" = $2 OR "branch" = 'main') ORDER BY "id" ASC, "branch" = $2 DESC LIMIT 1) AS sorter ORDER BY "orderKey" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Stuff"."id") AS "root"))), '[]') AS "stuff" FROM (SELECT * FROM "Stuff" WHERE "componentId" = "base"."id") AS "base.Stuff") AS "root.Stuff" ON ('true'))) AS "data""#;
-        let (statement, _params) = gql2sql(gqlast, None)?;
+        let (statement, _params) = gql2sql(gqlast, &None, None)?;
         assert_eq!(statement.to_string(), sql);
         Ok(())
     }
@@ -2200,7 +2359,7 @@ mod tests {
             column2;
         "#;
         let dialect = PostgreSqlDialect {};
-        let sqlast = Parser::parse_sql(&dialect, sql)?;
+        let _sqlast = Parser::parse_sql(&dialect, sql)?;
         Ok(())
     }
 
@@ -2220,10 +2379,9 @@ mod tests {
                     }
                 }
             }"#,
-        )?
-        .clone();
+        )?;
         // let sql = r#""#;
-        let (statement, _params) = gql2sql(gqlast, None)?;
+        let (_statement, _params) = gql2sql(gqlast, &None, None)?;
         // assert_eq!(statement.to_string(), sql);
         Ok(())
     }
@@ -2236,10 +2394,18 @@ mod tests {
                     id
                 }
             }"#,
-        )?
-        .clone();
+        )?;
         // let sql = r#""#;
-        let (statement, _params) = gql2sql(gqlast, None)?;
+        let (statement, _params) = gql2sql(
+            gqlast,
+            &Some(json!({
+                "order_getProfileList": {
+                    "username": "ASC"
+                }
+            })),
+            None,
+        )?;
+        println!("{:?}", statement.to_string());
         // assert_eq!(statement.to_string(), sql);
         Ok(())
     }
