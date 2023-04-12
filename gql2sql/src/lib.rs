@@ -1,6 +1,6 @@
 mod consts;
 
-use crate::consts::*;
+use crate::consts::{BASE, DATA_LABEL, JSON_AGG, JSON_BUILD_OBJECT, ON, QUOTE_CHAR, ROOT_LABEL, TO_JSON, TO_JSONB};
 use anyhow::anyhow;
 use async_graphql_parser::{
     types::{
@@ -28,7 +28,7 @@ fn get_value<'a>(value: &'a GqlValue, parameters: &IndexMap<&'a str, DataType>) 
                 .get_index_of(v.as_ref())
                 .map(|i| i + 1)
                 .ok_or(anyhow!("variable not found"))?;
-            Ok(Expr::Value(Value::Placeholder(format!("${}", index))))
+            Ok(Expr::Value(Value::Placeholder(format!("${index}"))))
         }
         GqlValue::Null => Ok(Expr::Value(Value::Null)),
         GqlValue::String(s) => Ok(Expr::Value(Value::SingleQuotedString(s.clone()))),
@@ -151,7 +151,7 @@ fn handle_filter_arg<'a>(
                     })
                     .collect::<AnyResult<Vec<Option<Expr>>>>()?
                     .into_iter()
-                    .filter_map(|v| v)
+                    .flatten()
                     .collect::<Vec<Expr>>();
 
                 let mut last_expr = conditions.remove(0);
@@ -181,7 +181,7 @@ fn handle_filter_arg<'a>(
                     })
                     .collect::<AnyResult<Vec<Option<Expr>>>>()?
                     .into_iter()
-                    .filter_map(|v| v)
+                    .flatten()
                     .collect::<Vec<Expr>>();
                 let mut last_expr = conditions.remove(0);
                 for condition in conditions {
@@ -223,7 +223,7 @@ fn get_filter<'a>(
                 .map(|(key, value)| handle_filter_arg(key, value, parameters))
                 .collect::<AnyResult<Vec<Option<Expr>>>>()?
                 .into_iter()
-                .filter_map(|v| v)
+                .flatten()
                 .collect();
             if conditions.is_empty() {
                 return Ok(None);
@@ -553,7 +553,7 @@ fn get_join<'a>(
     if is_single {
         first = Some(Expr::Value(Value::Number("1".to_string(), false)));
     }
-    let sub_path = path.map_or_else(|| relation.to_string(), |v| format!("{}.{}", v, relation));
+    let sub_path = path.map_or_else(|| relation.to_string(), |v| format!("{v}.{relation}"));
     let join_filter = zip(pks, fks)
         .map(|(pk, fk)| Expr::BinaryOp {
             left: Box::new(Expr::CompoundIdentifier(vec![
@@ -562,18 +562,18 @@ fn get_join<'a>(
                     quote_style: Some(QUOTE_CHAR),
                 },
                 Ident {
-                    value: fk.to_string(),
+                    value: fk,
                     quote_style: Some(QUOTE_CHAR),
                 },
             ])),
             op: BinaryOperator::Eq,
             right: Box::new(Expr::CompoundIdentifier(vec![
                 Ident {
-                    value: path.map_or(BASE.to_string(), |v| v.to_string()),
+                    value: path.map_or(BASE.to_string(), std::string::ToString::to_string),
                     quote_style: Some(QUOTE_CHAR),
                 },
                 Ident {
-                    value: pk.to_string(),
+                    value: pk,
                     quote_style: Some(QUOTE_CHAR),
                 },
             ])),
@@ -721,7 +721,7 @@ fn get_static<'a>(name: &'a str, directives: &Vec<Positioned<Directive>>) -> Opt
                     GqlValue::Boolean(value) => value.to_string(),
                     _ => unreachable!(),
                 })
-                .unwrap_or_else(|| "".to_string());
+                .unwrap_or_else(String::new);
             return Some(SelectItem::ExprWithAlias {
                 expr: Expr::Value(Value::SingleQuotedString(value)),
                 alias: Ident {
@@ -919,7 +919,7 @@ fn value_to_string<'a>(value: &'a GqlValue) -> AnyResult<String> {
 fn get_relation<'a>(
     directives: &'a Vec<Positioned<Directive>>,
 ) -> AnyResult<(String, Vec<String>, Vec<String>, bool, bool)> {
-    let mut relation: String = "".to_string();
+    let mut relation: String = String::new();
     let mut fk = vec![];
     let mut pk = vec![];
     let mut is_single = false;
@@ -1170,7 +1170,7 @@ fn get_order<'a>(
 fn get_distinct<'a>(distinct: &'a Vec<GqlValue>) -> Option<Vec<&'a str>> {
     let values: Vec<&'a str> = distinct
         .iter()
-        .flat_map(|v| match v {
+        .filter_map(|v| match v {
             GqlValue::String(s) => Some(s.as_str()),
             _ => None,
         })
@@ -1186,12 +1186,12 @@ fn get_distinct<'a>(distinct: &'a Vec<GqlValue>) -> Option<Vec<&'a str>> {
 fn json_to_gql_value(value: &serde_json::Value) -> GqlValue {
     match value {
         serde_json::Value::Null => GqlValue::Null,
-        serde_json::Value::Bool(b) => GqlValue::Boolean(b.clone()),
+        serde_json::Value::Bool(b) => GqlValue::Boolean(*b),
         serde_json::Value::Number(n) => GqlValue::Number(n.clone()),
         serde_json::Value::String(s) => GqlValue::String(s.clone()),
         serde_json::Value::Array(a) => GqlValue::List(
-            a.into_iter()
-                .map(|v| json_to_gql_value(v))
+            a.iter()
+                .map(json_to_gql_value)
                 .collect::<Vec<GqlValue>>(),
         ),
         serde_json::Value::Object(o) => GqlValue::Object(
@@ -1421,7 +1421,7 @@ fn get_data_type(var_type: &Type) -> AnyResult<DataType> {
     Ok(value)
 }
 
-pub fn parse_query_meta<'a>(field: &'a Field) -> (&'a str, &'a str, bool, bool) {
+#[must_use] pub fn parse_query_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bool, bool)> {
     let mut is_aggregate = false;
     let mut is_single = false;
     let mut name = field.name.node.as_str();
@@ -1463,13 +1463,13 @@ pub fn parse_query_meta<'a>(field: &'a Field) -> (&'a str, &'a str, bool, bool) 
     }
 
     if is_aggregate && is_single {
-        panic!("Query cannot be both aggregate and single");
+        return Err(anyhow!("Query cannot be both aggregate and single"));
     }
 
-    (name, key, is_aggregate, is_single)
+    Ok((name, key, is_aggregate, is_single))
 }
 
-pub fn parse_mutation_meta<'a>(field: &'a Field) -> (&'a str, &'a str, bool, bool) {
+#[must_use] pub fn parse_mutation_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bool, bool)> {
     let mut is_insert = false;
     let mut is_update = false;
     let mut name = field.name.node.as_ref();
@@ -1511,13 +1511,13 @@ pub fn parse_mutation_meta<'a>(field: &'a Field) -> (&'a str, &'a str, bool, boo
     }
 
     if is_insert && is_update {
-        panic!("Mutation can not be both insert and update");
+        return Err(anyhow!("Mutation cannot be both insert and update"));
     }
 
-    (name, key, is_insert, is_update)
+    Ok((name, key, is_insert, is_update))
 }
 
-pub fn wrap_mutation<'a>(key: &'a str, value: Statement) -> Statement {
+#[must_use] pub fn wrap_mutation<'a>(key: &'a str, value: Statement) -> Statement {
     Statement::Query(Box::new(Query {
         with: Some(With {
             cte_tables: vec![Cte {
@@ -1694,7 +1694,7 @@ pub fn gql2sql<'a>(
 
     match operation.ty {
         OperationType::Query => {
-            for param in operation.variable_definitions.iter() {
+            for param in &operation.variable_definitions {
                 let ptype = &param.node.var_type.node;
                 parameters.insert(param.node.name.node.as_str(), get_data_type(ptype)?);
             }
@@ -1702,9 +1702,9 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
-                        let (name, key, is_aggregate, is_single) = parse_query_meta(field);
+                        let (name, key, is_aggregate, is_single) = parse_query_meta(field)?;
                         let (selection, distinct, distinct_order, order_by, mut first, after) =
-                            parse_args(&field.arguments, &parameters, &variables)?;
+                            parse_args(&field.arguments, &parameters, variables)?;
                         if is_single {
                             first = Some(Expr::Value(Value::Number("1".to_string(), false)));
                         }
@@ -1853,7 +1853,7 @@ pub fn gql2sql<'a>(
             if !parameters.is_empty() {
                 return Ok((
                     statement,
-                    Some(parameters.into_keys().map(|k| k.to_string()).collect()),
+                    Some(parameters.into_keys().map(std::string::ToString::to_string).collect()),
                 ));
             }
             return Ok((statement, None));
@@ -1863,7 +1863,7 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
-                        let (name, key, is_insert, is_update) = parse_mutation_meta(field);
+                        let (name, key, is_insert, is_update) = parse_mutation_meta(field)?;
                         if is_insert {
                             let (columns, rows) =
                                 get_mutation_columns(&field.arguments, &parameters)?;
