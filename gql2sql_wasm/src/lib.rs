@@ -1,9 +1,10 @@
-use gql2sql::gql2sql as gql2sql_rs;
 use async_graphql_parser::parse_query;
+use gql2sql::gql2sql as gql2sql_rs;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-#[must_use] pub fn gql2sql(query: String) -> String {
+#[must_use]
+pub fn gql2sql(query: String) -> String {
     let gqlast = parse_query(query).unwrap();
     let (statement, _params) = gql2sql_rs(gqlast, &None, None).unwrap();
     statement.to_string()

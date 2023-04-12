@@ -1,6 +1,6 @@
+use async_graphql_parser::parse_query;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gql2sql::gql2sql;
-use async_graphql_parser::parse_query;
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("parse", |b| {

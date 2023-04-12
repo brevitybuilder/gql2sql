@@ -1,14 +1,14 @@
-use gql2sql::gql2sql as gql2sql_rs;
 use async_graphql_parser::parse_query;
+use gql2sql::gql2sql as gql2sql_rs;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use worker::{Cache, DurableObject, Env, Request, Response, Result, Router, event};
+use worker::{event, Cache, DurableObject, Env, Request, Response, Result, Router};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Query {
     query: String,
-		variables: Option<Value>,
+    variables: Option<Value>,
     operation_name: Option<String>,
 }
 
@@ -25,13 +25,14 @@ pub async fn main(request: Request, env: Env, ctx: worker::Context) -> Result<Re
     let reponse = router
         .get("/", |_, _| Response::ok("Hello from Workers!"))
         .post_async("/graphql", |mut req, _| async move {
-						let cache = Cache::default();
+            let cache = Cache::default();
             if let Some(response) = cache.get(&req, false).await? {
                 return Ok(response);
             }
             let body = req.json::<Query>().await?;
             let gqlast = parse_query(&body.query).unwrap();
-            let (statement, params) = gql2sql_rs(gqlast, &body.variables, body.operation_name).unwrap();
+            let (statement, params) =
+                gql2sql_rs(gqlast, &body.variables, body.operation_name).unwrap();
             let mut resp = Response::from_json(&Gql2sql {
                 query: statement.to_string(),
                 vars: params,
@@ -47,13 +48,13 @@ pub async fn main(request: Request, env: Env, ctx: worker::Context) -> Result<Re
         .run(request.clone().unwrap(), env)
         .await;
 
-		if let Ok(mut resp) = reponse {
-			let cache = Cache::default();
-			let cloned = resp.cloned()?;
-			ctx.wait_until(async move {
-				let _ = cache.put(&request, cloned).await;
-			});
-			return Ok(resp);
-		}
-		reponse
+    if let Ok(mut resp) = reponse {
+        let cache = Cache::default();
+        let cloned = resp.cloned()?;
+        ctx.wait_until(async move {
+            let _ = cache.put(&request, cloned).await;
+        });
+        return Ok(resp);
+    }
+    reponse
 }

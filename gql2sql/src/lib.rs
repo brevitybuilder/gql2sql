@@ -6,8 +6,8 @@ use crate::consts::{
 use anyhow::anyhow;
 use async_graphql_parser::{
     types::{
-        Directive, DocumentOperations, ExecutableDocument, Field, OperationType,
-        Selection, VariableDefinition,
+        Directive, DocumentOperations, ExecutableDocument, Field, OperationType, Selection,
+        VariableDefinition,
     },
     Positioned,
 };

@@ -1,6 +1,6 @@
+use async_graphql_parser::parse_query;
 use deno_bindgen::deno_bindgen;
 use gql2sql::gql2sql as gql2sql_rs;
-use async_graphql_parser::parse_query;
 
 #[deno_bindgen]
 pub fn gql2sql(code: &str) -> String {
