@@ -78,7 +78,7 @@ async fn graphql(
     let gqlast = async_graphql_parser::parse_query(&payload.query).unwrap();
     meta.insert("parse".to_string(), start.elapsed().as_millis().to_string());
     let start = std::time::Instant::now();
-    let (statement, mut args) =
+    let (statement, args) =
         gql2sql::gql2sql(gqlast, &payload.variables, payload.operation_name).unwrap();
     meta.insert(
         "transform".to_string(),
@@ -90,7 +90,7 @@ async fn graphql(
     if let Some(args) = args {
         args.into_iter().for_each(|a| match a {
             Value::String(s) => {
-                println!("string: {}", s);
+                println!("string: {s}");
                 pg_args.add(s);
             }
             Value::Number(n) => {

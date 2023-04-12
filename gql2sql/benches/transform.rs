@@ -29,7 +29,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     )
     .unwrap();
     c.bench_function("transform", |b| {
-        b.iter(|| gql2sql(black_box(gqlast.clone()), &None, Some("App")));
+        b.iter(|| gql2sql(black_box(gqlast.clone()), &None, Some("App".to_string())));
     });
 }
 

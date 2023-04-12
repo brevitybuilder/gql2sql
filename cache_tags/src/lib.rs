@@ -5,11 +5,11 @@ pub fn cache_tags(value: &Value, tags: &mut HashSet<String>) {
     match value {
         Value::Object(map) => {
             if let Some(Value::String(typename)) = map.get("__typename") {
-                tags.insert(format!("type:{}", typename));
+                tags.insert(format!("type:{typename}"));
                 for (key, value) in map {
                     match (key.as_str(), value) {
                         ("id" | "_id" | "key", Value::String(id)) => {
-                            tags.insert(format!("type:{}:{}:{}", typename, key, id));
+                            tags.insert(format!("type:{typename}:{key}:{id}"));
                         }
                         _ => {
                             cache_tags(value, tags);

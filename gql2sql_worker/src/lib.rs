@@ -2,7 +2,7 @@ use gql2sql::gql2sql as gql2sql_rs;
 use async_graphql_parser::parse_query;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use worker::*;
+use worker::{Cache, DurableObject, Env, Request, Response, Result, Router, event};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,7 +38,7 @@ pub async fn main(request: Request, env: Env, ctx: worker::Context) -> Result<Re
             })?;
             resp.headers_mut().set("cache-control", "max-age=86400")?;
             //
-            return Ok(resp);
+            Ok(resp)
         })
         .get("/worker-version", |_, ctx| {
             let version = ctx.var("WORKERS_RS_VERSION")?.to_string();

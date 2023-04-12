@@ -6,8 +6,8 @@ use crate::consts::{
 use anyhow::anyhow;
 use async_graphql_parser::{
     types::{
-        BaseType, Directive, DocumentOperations, ExecutableDocument, Field, OperationType,
-        Selection, Type, VariableDefinition,
+        Directive, DocumentOperations, ExecutableDocument, Field, OperationType,
+        Selection, VariableDefinition,
     },
     Positioned,
 };
@@ -1001,7 +1001,7 @@ fn get_filter_query<'a>(
     if let Some(distinct) = distinct {
         let columns = distinct
             .into_iter()
-            .map(|s| Value::DoubleQuotedString(s.to_string()).to_string())
+            .map(|s| Value::DoubleQuotedString(s).to_string())
             .collect::<Vec<String>>();
         projection = vec![SelectItem::UnnamedExpr(Expr::Identifier(Ident {
             value: ON.to_owned() + " (" + &columns.join(",") + ") *",
@@ -1118,7 +1118,6 @@ fn get_order<'a>(
             }
         }
         if let Some(expr) = order.get("expr") {
-            println!("expr: {:?}", expr);
             match expr {
                 GqlValue::String(s) => {
                     return Ok(vec![OrderByExpr {
@@ -1215,7 +1214,7 @@ fn flatten<'a>(
                 .iter()
                 .enumerate()
                 .map(|(i, v)| {
-                    let new_name = format!("{}_{}", name, i);
+                    let new_name = format!("{name}_{i}");
                     flatten(Name::new(new_name), v, sql_vars)
                 })
                 .collect();
@@ -2454,7 +2453,6 @@ mod tests {
             })),
             None,
         )?;
-        println!("{:?}", statement.to_string());
         // assert_eq!(statement.to_string(), sql);
         Ok(())
     }
