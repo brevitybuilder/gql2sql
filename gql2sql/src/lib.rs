@@ -1099,7 +1099,7 @@ fn get_filter_query<'a>(
 
 fn get_order<'a>(
     order: &IndexMap<Name, GqlValue>,
-    variables: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a IndexMap<Name, JsonValue>,
 ) -> AnyResult<Vec<OrderByExpr>> {
     if order.contains_key("expr") && order.contains_key("dir") {
         let mut asc = None;
@@ -1111,6 +1111,11 @@ fn get_order<'a>(
                 GqlValue::Enum(e) => {
                     let s: &str = e.as_ref();
                     asc = Some(s == "ASC");
+                }
+                GqlValue::Variable(v) => {
+                    if let Some(JsonValue::String(s)) = sql_vars.get(v) {
+                        asc = Some(s == "ASC");
+                    }
                 }
                 _ => {
                     return Err(anyhow!("Invalid value for order direction"));
@@ -1130,9 +1135,21 @@ fn get_order<'a>(
                     }]);
                 }
                 GqlValue::Object(args) => {
-                    if let Some(expression) = get_filter(args, variables)? {
+                    if let Some(expression) = get_filter(args, sql_vars)? {
                         return Ok(vec![OrderByExpr {
                             expr: expression,
+                            asc,
+                            nulls_first: None,
+                        }]);
+                    }
+                }
+                GqlValue::Variable(v) => {
+                    if let Some(JsonValue::String(s)) = sql_vars.get(v) {
+                        return Ok(vec![OrderByExpr {
+                            expr: Expr::Identifier(Ident {
+                                value: s.clone(),
+                                quote_style: Some(QUOTE_CHAR),
+                            }),
                             asc,
                             nulls_first: None,
                         }]);
@@ -1165,6 +1182,17 @@ fn get_order<'a>(
                         quote_style: Some(QUOTE_CHAR),
                     }),
                     asc: Some(s == "ASC"),
+                    nulls_first: None,
+                });
+            }
+            GqlValue::Variable(name) => {
+                let index = sql_vars
+                    .get_index_of(name)
+                    .map(|i| i + 1)
+                    .ok_or(anyhow!("variable not found"))?;
+                order_by.push(OrderByExpr {
+                    expr: Expr::Value(Value::Placeholder(format!("${index}"))),
+                    asc: None,
                     nulls_first: None,
                 });
             }
