@@ -62,12 +62,8 @@ test('complex query', (t) => {
           id
           branch
           ... on PageMeta
-            @relation(
-              table: "PageMeta"
-              field: ["componentId"]
-              references: ["id"]
-              single: true
-            ) @args(
+            @relation(table: "PageMeta", field: ["componentId"], references: ["id"], single: true)
+            @args(
               filter: { or: [{ branch: { eq: $branch } }, { branch: { eq: "main" } }] }
               distinct: { on: ["id"], order: [{ expr: { branch: { eq: $branch } }, dir: DESC }] }
             ) {
@@ -84,12 +80,8 @@ test('complex query', (t) => {
             staleWhileRevalidate
           }
           ... on ComponentMeta
-            @relation(
-              table: "ComponentMeta"
-              field: ["componentId"]
-              references: ["id"]
-              single: true
-            ) @args(
+            @relation(table: "ComponentMeta", field: ["componentId"], references: ["id"], single: true)
+            @args(
               filter: { or: [{ branch: { eq: $branch } }, { branch: { eq: "main" } }] }
               distinct: { on: ["id"], order: [{ expr: { branch: { eq: $branch } }, dir: DESC }] }
             ) {
