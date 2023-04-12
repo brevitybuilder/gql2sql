@@ -285,7 +285,7 @@ fn get_root_query<'a>(
     projection: Vec<SelectItem>,
     from: Vec<TableWithJoins>,
     selection: Option<Expr>,
-    merges: Vec<Merge>,
+    merges: &[Merge],
     is_single: bool,
     alias: &'a str,
 ) -> SetExpr {
@@ -674,7 +674,7 @@ fn get_join<'a>(
                             joins: sub_joins,
                         }],
                         None,
-                        merges,
+                        &merges,
                         is_single,
                         name,
                     )),
@@ -713,15 +713,14 @@ fn get_static<'a>(name: &'a str, directives: &Vec<Positioned<Directive>>) -> Opt
                 .arguments
                 .iter()
                 .find(|(name, _)| name.node.as_ref() == "value")
-                .map(|(_, value)| match &value.node {
+                .map_or_else(String::new, |(_, value)| match &value.node {
                     GqlValue::String(value) => value.to_string(),
                     GqlValue::Number(value) => {
                         value.as_i64().expect("value is not an int").to_string()
                     }
                     GqlValue::Boolean(value) => value.to_string(),
                     _ => unreachable!(),
-                })
-                .unwrap_or_else(String::new);
+                });
             return Some(SelectItem::ExprWithAlias {
                 expr: Expr::Value(Value::SingleQuotedString(value)),
                 alias: Ident {
@@ -882,7 +881,7 @@ fn get_projection<'a>(
                                 quote_style: Some(QUOTE_CHAR),
                             },
                         ]))),
-                    })
+                    });
                 }
             }
             Selection::FragmentSpread(_) => {
@@ -917,7 +916,7 @@ fn value_to_string<'a>(value: &'a GqlValue) -> AnyResult<String> {
 }
 
 fn get_relation<'a>(
-    directives: &'a Vec<Positioned<Directive>>,
+    directives: &'a [Positioned<Directive>],
 ) -> AnyResult<(String, Vec<String>, Vec<String>, bool, bool)> {
     let mut relation: String = String::new();
     let mut fk = vec![];
@@ -1167,7 +1166,7 @@ fn get_order<'a>(
     Ok(order_by)
 }
 
-fn get_distinct<'a>(distinct: &'a Vec<GqlValue>) -> Option<Vec<&'a str>> {
+fn get_distinct<'a>(distinct: &'a [GqlValue]) -> Option<Vec<&'a str>> {
     let values: Vec<&'a str> = distinct
         .iter()
         .filter_map(|v| match v {
@@ -1285,7 +1284,7 @@ fn parse_args<'a>(
                         .flatten()
                         .collect::<Vec<OrderByExpr>>()
                         .as_mut(),
-                )
+                );
             }
             ("first", GqlValue::Number(count)) => {
                 first = Some(Expr::Value(Value::Number(
@@ -1408,9 +1407,8 @@ fn get_data_type(var_type: &Type) -> AnyResult<DataType> {
         BaseType::Named(ref name) => match name.as_str() {
             "Int" => DataType::Int(None),
             "Float" => DataType::Float(None),
-            "String" => DataType::Text,
+            "String" | "ID" => DataType::Text,
             "Boolean" => DataType::Boolean,
-            "ID" => DataType::Text,
             "DateTime" => DataType::Timestamp(Some(3), sqlparser::ast::TimezoneInfo::WithTimeZone),
             _ => DataType::JSON,
         },
@@ -1421,7 +1419,7 @@ fn get_data_type(var_type: &Type) -> AnyResult<DataType> {
     Ok(value)
 }
 
-#[must_use] pub fn parse_query_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bool, bool)> {
+pub fn parse_query_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bool, bool)> {
     let mut is_aggregate = false;
     let mut is_single = false;
     let mut name = field.name.node.as_str();
@@ -1669,7 +1667,7 @@ pub fn gql2sql<'a>(
     ast: ExecutableDocument,
     variables: &Option<serde_json::Value>,
     operation_name: Option<&'a str>,
-) -> Result<(Statement, Option<Vec<String>>), anyhow::Error> {
+) -> AnyResult<(Statement, Option<Vec<String>>)> {
     let mut statements = Vec::new();
     let mut parameters: IndexMap<&str, DataType> = IndexMap::new();
     let operation = match ast.operations {
@@ -1774,7 +1772,7 @@ pub fn gql2sql<'a>(
                                     joins,
                                 }],
                                 None,
-                                merges,
+                                &merges,
                                 is_single,
                                 ROOT_LABEL,
                             );
