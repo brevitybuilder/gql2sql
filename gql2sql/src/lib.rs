@@ -712,7 +712,11 @@ struct Merge {
     expr: Expr,
 }
 
-fn get_static<'a>(name: &'a str, directives: &Vec<Positioned<Directive>>, sql_vars: &'a IndexMap<Name, JsonValue>) -> AnyResult<Option<SelectItem>> {
+fn get_static<'a>(
+    name: &'a str,
+    directives: &Vec<Positioned<Directive>>,
+    sql_vars: &'a IndexMap<Name, JsonValue>,
+) -> AnyResult<Option<SelectItem>> {
     for p_directive in directives {
         let directive = &p_directive.node;
         let directive_name: &str = directive.name.node.as_ref();
@@ -723,22 +727,20 @@ fn get_static<'a>(name: &'a str, directives: &Vec<Positioned<Directive>>, sql_va
                 .find(|(name, _)| name.node.as_ref() == "value")
                 .ok_or_else(|| anyhow!("static value not found"))?;
             let value = match &value.node {
-                    GqlValue::String(value) => value.to_string(),
-                    GqlValue::Number(value) => {
-                        value.as_i64().expect("value is not an int").to_string()
+                GqlValue::String(value) => value.to_string(),
+                GqlValue::Number(value) => value.as_i64().expect("value is not an int").to_string(),
+                GqlValue::Variable(name) => {
+                    if let Some(value) = sql_vars.get(name) {
+                        value.to_string()
+                    } else {
+                        return Err(anyhow!("variable not found: {}", name));
                     }
-                    GqlValue::Variable(name) => {
-                        if let Some(value) = sql_vars.get(name) {
-                            value.to_string()
-                        } else {
-                            return Err(anyhow!("variable not found: {}", name));
-                        }
-                    },
-                    GqlValue::Boolean(value) => value.to_string(),
-                    _ => {
-                        return Err(anyhow!("static value is not a string"));
-                    },
-                };
+                }
+                GqlValue::Boolean(value) => value.to_string(),
+                _ => {
+                    return Err(anyhow!("static value is not a string"));
+                }
+            };
             return Ok(Some(SelectItem::ExprWithAlias {
                 expr: Expr::Value(Value::SingleQuotedString(value)),
                 alias: Ident {
@@ -782,7 +784,8 @@ fn get_projection<'a>(
                         quote_style: Some(QUOTE_CHAR),
                     })));
                 } else {
-                    if let Some(value) = get_static(&field.name.node, &field.directives, sql_vars)? {
+                    if let Some(value) = get_static(&field.name.node, &field.directives, sql_vars)?
+                    {
                         projection.push(value);
                         continue;
                     }
