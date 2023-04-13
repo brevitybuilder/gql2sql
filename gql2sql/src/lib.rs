@@ -552,7 +552,7 @@ fn get_join<'a>(
 ) -> AnyResult<Join> {
     let (selection, distinct, distinct_order, order_by, mut first, after) =
         parse_args(arguments, variables, sql_vars)?;
-    let (relation, fks, pks, is_single, is_aggregate) = get_relation(directives)?;
+    let (relation, fks, pks, is_single, is_aggregate) = get_relation(directives, sql_vars)?;
     if is_single {
         first = Some(Expr::Value(Value::Number("1".to_string(), false)));
     }
@@ -712,33 +712,43 @@ struct Merge {
     expr: Expr,
 }
 
-fn get_static<'a>(name: &'a str, directives: &Vec<Positioned<Directive>>) -> Option<SelectItem> {
+fn get_static<'a>(name: &'a str, directives: &Vec<Positioned<Directive>>, sql_vars: &'a IndexMap<Name, JsonValue>) -> AnyResult<Option<SelectItem>> {
     for p_directive in directives {
         let directive = &p_directive.node;
         let directive_name: &str = directive.name.node.as_ref();
         if directive_name == "static" {
-            let value = directive
+            let (_, value) = directive
                 .arguments
                 .iter()
                 .find(|(name, _)| name.node.as_ref() == "value")
-                .map_or_else(String::new, |(_, value)| match &value.node {
+                .ok_or_else(|| anyhow!("static value not found"))?;
+            let value = match &value.node {
                     GqlValue::String(value) => value.to_string(),
                     GqlValue::Number(value) => {
                         value.as_i64().expect("value is not an int").to_string()
                     }
+                    GqlValue::Variable(name) => {
+                        if let Some(value) = sql_vars.get(name) {
+                            value.to_string()
+                        } else {
+                            return Err(anyhow!("variable not found: {}", name));
+                        }
+                    },
                     GqlValue::Boolean(value) => value.to_string(),
-                    _ => unreachable!(),
-                });
-            return Some(SelectItem::ExprWithAlias {
+                    _ => {
+                        return Err(anyhow!("static value is not a string"));
+                    },
+                };
+            return Ok(Some(SelectItem::ExprWithAlias {
                 expr: Expr::Value(Value::SingleQuotedString(value)),
                 alias: Ident {
                     value: name.to_string(),
                     quote_style: Some(QUOTE_CHAR),
                 },
-            });
+            }));
         }
     }
-    None
+    Ok(None)
 }
 
 fn get_projection<'a>(
@@ -772,7 +782,7 @@ fn get_projection<'a>(
                         quote_style: Some(QUOTE_CHAR),
                     })));
                 } else {
-                    if let Some(value) = get_static(&field.name.node, &field.directives) {
+                    if let Some(value) = get_static(&field.name.node, &field.directives, sql_vars)? {
                         projection.push(value);
                         continue;
                     }
@@ -852,7 +862,7 @@ fn get_projection<'a>(
                         .iter()
                         .find(|d| d.node.name.node.as_ref() == "args");
                     let (relation, _fks, _pks, _is_single, _is_aggregate) =
-                        get_relation(&frag.directives)?;
+                        get_relation(&frag.directives, sql_vars)?;
                     let join = get_join(
                         args.map_or(&vec![], |dir| &dir.node.arguments),
                         &frag.directives,
@@ -900,7 +910,10 @@ fn get_projection<'a>(
     Ok((projection, joins, merges))
 }
 
-fn value_to_string<'a>(value: &'a GqlValue) -> AnyResult<String> {
+fn value_to_string<'a>(
+    value: &'a GqlValue,
+    sql_vars: &'a IndexMap<Name, JsonValue>,
+) -> AnyResult<String> {
     let output = match value {
         GqlValue::String(s) => s.clone(),
         GqlValue::Number(f) => f.to_string(),
@@ -908,13 +921,17 @@ fn value_to_string<'a>(value: &'a GqlValue) -> AnyResult<String> {
         GqlValue::Enum(e) => e.to_string(),
         GqlValue::List(l) => l
             .iter()
-            .map(value_to_string)
+            .map(|l| value_to_string(l, sql_vars))
             .collect::<AnyResult<Vec<String>>>()?
             .join(","),
         GqlValue::Null => "null".to_owned(),
         GqlValue::Object(obj) => serde_json::to_string(obj).unwrap(),
         GqlValue::Variable(name) => {
-            return Err(anyhow!("Variable {} is not supported", name));
+            if let Some(value) = sql_vars.get(name) {
+                value.to_string()
+            } else {
+                return Err(anyhow!("Variable {} is not defined", name));
+            }
         }
         GqlValue::Binary(_) => {
             return Err(anyhow!("Binary value is not supported"));
@@ -925,6 +942,7 @@ fn value_to_string<'a>(value: &'a GqlValue) -> AnyResult<String> {
 
 fn get_relation<'a>(
     directives: &'a [Positioned<Directive>],
+    sql_vars: &'a IndexMap<Name, JsonValue>,
 ) -> AnyResult<(String, Vec<String>, Vec<String>, bool, bool)> {
     let mut relation: String = String::new();
     let mut fk = vec![];
@@ -942,13 +960,13 @@ fn get_relation<'a>(
                 let name = name.node.as_str();
                 let value = &value.node;
                 match name {
-                    "table" => relation = value_to_string(value)?,
+                    "table" => relation = value_to_string(value, sql_vars)?,
                     "field" | "fields" => {
                         fk = match &value {
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(value_to_string)
+                                .map(|l| value_to_string(l, sql_vars))
                                 .collect::<AnyResult<Vec<String>>>()?,
                             _ => {
                                 return Err(anyhow!("Invalid value for field in relation"));
@@ -960,7 +978,7 @@ fn get_relation<'a>(
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(value_to_string)
+                                .map(|l| value_to_string(l, sql_vars))
                                 .collect::<AnyResult<Vec<String>>>()?,
                             _ => {
                                 return Err(anyhow!("Invalid value for reference in relation"));
@@ -1354,11 +1372,20 @@ fn parse_args<'a>(
                         .as_mut(),
                 );
             }
+            ("first", GqlValue::Variable(name)) => {
+                first = Some(Expr::Value(Value::Placeholder(name.to_string())));
+            }
             ("first", GqlValue::Number(count)) => {
                 first = Some(Expr::Value(Value::Number(
                     count.as_i64().expect("int to be an i64").to_string(),
                     false,
                 )));
+            }
+            ("after", GqlValue::Variable(name)) => {
+                after = Some(Offset {
+                    value: Expr::Value(Value::Placeholder(name.to_string())),
+                    rows: OffsetRows::None,
+                });
             }
             ("after", GqlValue::Number(count)) => {
                 after = Some(Offset {
@@ -2465,9 +2492,17 @@ mod tests {
     #[test]
     fn query_json_arg() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
-            r#"query BrevityQuery($order_getProfileList: tMjcdRYigDTiKeFcdfciTM_Order) {
-                getProfileList(order: $order_getProfileList) @meta(table: "tMjcdRYigDTiKeFcdfciTM") {
-                    id
+            r#"query GetData($first: Int!, $after: Int!, $order: OrderBy!) {
+                agg @meta(table: "tMjcdRYigDTiKeFcdfciTM", aggregate: true) {
+                    count
+                }
+                tMjcdRYigDTiKeFcdfciTM(first: $first, after: $after, order: $order) @meta(table: "tMjcdRYigDTiKeFcdfciTM") {
+                    id: id
+                    created_at: created_at
+                    updated_at: updated_at
+                    bio: cbCFaUbBCaDQxRy3c7wPWi
+                    username: cF6dbD8zBdHUJeiPaNg8Ex,
+                    posts @relation(table: "tgwxVQxPi8EnKDwwWpJxbi", fields: ["cYzdX9KBkrpyJyRqg7hrJd"], references: ["id"], aggregate: true) { count }
                 }
             }"#,
         )?;
@@ -2475,8 +2510,10 @@ mod tests {
         let (statement, _params) = gql2sql(
             gqlast,
             &Some(json!({
-                "order_getProfileList": {
-                    "username": "ASC"
+                "first": 10,
+                "after": 0,
+                "order": {
+                    "created_at": "DESC"
                 }
             })),
             None,
