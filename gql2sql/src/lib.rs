@@ -1376,7 +1376,7 @@ fn parse_args<'a>(
                 );
             }
             ("first", GqlValue::Variable(name)) => {
-                first = Some(Expr::Value(Value::Placeholder(name.to_string())));
+                first = Some(get_value(&GqlValue::Variable(name), sql_vars)?);
             }
             ("first", GqlValue::Number(count)) => {
                 first = Some(Expr::Value(Value::Number(
@@ -1386,7 +1386,7 @@ fn parse_args<'a>(
             }
             ("after", GqlValue::Variable(name)) => {
                 after = Some(Offset {
-                    value: Expr::Value(Value::Placeholder(name.to_string())),
+                    value: get_value(&GqlValue::Variable(name), sql_vars)?,
                     rows: OffsetRows::None,
                 });
             }
@@ -2510,7 +2510,7 @@ mod tests {
             }"#,
         )?;
         // let sql = r#""#;
-        let (statement, _params) = gql2sql(
+        let (statement, params) = gql2sql(
             gqlast,
             &Some(json!({
                 "first": 10,
@@ -2521,6 +2521,8 @@ mod tests {
             })),
             None,
         )?;
+        println!("{:?}", statement.to_string());
+        println!("{:?}", params);
         // assert_eq!(statement.to_string(), sql);
         Ok(())
     }

@@ -140,7 +140,7 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let db_connection_str = std::env::var("DATABASE_URL")
+    let db_connection_str = std::env::var("ADMIN_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:password@localhost".to_string());
 
     // setup connection pool
@@ -176,7 +176,7 @@ async fn main() {
         .with_state(pool);
 
     // run it with hyper
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+    let addr = SocketAddr::from(([127, 0, 0, 1], 8081));
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
