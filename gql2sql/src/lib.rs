@@ -1563,7 +1563,9 @@ pub fn parse_query_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bo
 }
 
 #[must_use]
-pub fn parse_mutation_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bool, bool, bool)> {
+pub fn parse_mutation_meta<'a>(
+    field: &'a Field,
+) -> AnyResult<(&'a str, &'a str, bool, bool, bool)> {
     let mut is_insert = false;
     let mut is_update = false;
     let mut is_delete = false;
@@ -1966,7 +1968,8 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
-                        let (name, key, is_insert, is_update, is_delete) = parse_mutation_meta(field)?;
+                        let (name, key, is_insert, is_update, is_delete) =
+                            parse_mutation_meta(field)?;
                         if is_insert {
                             let (columns, rows) =
                                 get_mutation_columns(&field.arguments, &variables, &sql_vars)?;
