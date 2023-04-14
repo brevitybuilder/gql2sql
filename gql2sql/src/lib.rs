@@ -493,7 +493,7 @@ fn get_agg_agg_projection<'a>(field: &'a Field) -> Vec<FunctionArg> {
                             }))),
                         ]
                     } else {
-                        unreachable!()
+                        vec![]
                     }
                 })
                 .collect();
@@ -1272,9 +1272,11 @@ fn flatten<'a>(
         JsonValue::Object(o) => {
             let mut out = IndexMap::with_capacity(o.len());
             for (k, v) in o {
-                let name = Name::new(k);
-                let new_value = flatten(name.clone(), v, sql_vars);
-                out.insert(name, new_value);
+                let new_name = format!("{name}_{k}");
+                let name = Name::new(new_name);
+                let key = Name::new(k);
+                let new_value = flatten(name, v, sql_vars);
+                out.insert(key, new_value);
             }
             GqlValue::Object(out)
         }
@@ -1409,13 +1411,19 @@ fn parse_args<'a>(
 
 fn get_mutation_columns<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
-    variables: &'a IndexMap<Name, JsonValue>,
+    variables: &'a IndexMap<Name, GqlValue>,
+    sql_vars: &'a IndexMap<Name, JsonValue>,
 ) -> AnyResult<(Vec<Ident>, Vec<Vec<Expr>>)> {
     let mut columns = vec![];
     let mut rows = vec![];
     for argument in arguments {
         let (key, value) = argument;
-        let (key, value) = (&key.node, &value.node);
+        let (key, mut value) = (&key.node, &value.node);
+        if let GqlValue::Variable(name) = value {
+            if let Some(new_value) = variables.get(name) {
+                value = new_value
+            }
+        }
         match (key.as_ref(), value) {
             ("data", GqlValue::Object(data)) => {
                 let mut row = vec![];
@@ -1424,7 +1432,7 @@ fn get_mutation_columns<'a>(
                         value: key.to_string(),
                         quote_style: Some(QUOTE_CHAR),
                     });
-                    row.push(get_value(value, variables)?);
+                    row.push(get_value(value, sql_vars)?);
                 }
                 rows.push(row);
             }
@@ -1442,13 +1450,13 @@ fn get_mutation_columns<'a>(
                                     quote_style: Some(QUOTE_CHAR),
                                 });
                             }
-                            row.push(get_value(value, variables)?);
+                            row.push(get_value(value, sql_vars)?);
                         }
                     }
                     rows.push(row);
                 }
             }
-            _ => todo!(),
+            _ => continue,
         }
     }
     Ok((columns, rows))
@@ -1456,16 +1464,22 @@ fn get_mutation_columns<'a>(
 
 fn get_mutation_assignments<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
-    variables: &'a IndexMap<Name, JsonValue>,
+    variables: &'a IndexMap<Name, GqlValue>,
+    sql_vars: &'a IndexMap<Name, JsonValue>,
 ) -> AnyResult<(Option<Expr>, Vec<Assignment>)> {
     let mut selection = None;
     let mut assignments = vec![];
     for argument in arguments {
         let (p_key, p_value) = argument;
-        let (key, value) = (&p_key.node, &p_value.node);
+        let (key, mut value) = (&p_key.node, &p_value.node);
+        if let GqlValue::Variable(name) = value {
+            if let Some(new_value) = variables.get(name) {
+                value = new_value
+            }
+        }
         match (key.as_ref(), value) {
             ("filter" | "where", GqlValue::Object(filter)) => {
-                selection = get_filter(filter, variables)?;
+                selection = get_filter(filter, sql_vars)?;
             }
             ("set", GqlValue::Object(data)) => {
                 for (key, value) in data.iter() {
@@ -1474,7 +1488,7 @@ fn get_mutation_assignments<'a>(
                             value: key.to_string(),
                             quote_style: Some(QUOTE_CHAR),
                         }],
-                        value: get_value(value, variables)?,
+                        value: get_value(value, sql_vars)?,
                     });
                 }
             }
@@ -1489,7 +1503,7 @@ fn get_mutation_assignments<'a>(
                         value: Expr::BinaryOp {
                             left: Box::new(Expr::Identifier(column_ident)),
                             op: BinaryOperator::Plus,
-                            right: Box::new(get_value(value, variables)?),
+                            right: Box::new(get_value(value, sql_vars)?),
                         },
                     });
                 }
@@ -1943,7 +1957,7 @@ pub fn gql2sql<'a>(
                         let (name, key, is_insert, is_update) = parse_mutation_meta(field)?;
                         if is_insert {
                             let (columns, rows) =
-                                get_mutation_columns(&field.arguments, &sql_vars)?;
+                                get_mutation_columns(&field.arguments, &variables, &sql_vars)?;
                             let (projection, _, _) = get_projection(
                                 &field.selection_set.node.items,
                                 name,
@@ -1993,7 +2007,7 @@ pub fn gql2sql<'a>(
                                 &sql_vars,
                             )?;
                             let (selection, assignments) =
-                                get_mutation_assignments(&field.arguments, &sql_vars)?;
+                                get_mutation_assignments(&field.arguments, &variables, &sql_vars)?;
                             return Ok((
                                 wrap_mutation(
                                     key,
@@ -2089,18 +2103,24 @@ mod tests {
     #[test]
     fn mutation_insert() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
-            r#"mutation insertVillains {
-                insert(data: [
-                    { name: "Ronan the Accuser" },
-                    { name: "Red Skull" },
-                    { name: "The Vulture" },
-                ]) @meta(table: "Villain", insert: true) { id name }
+            r#"mutation insertVillains($data: [Villain_insert_input!]!) {
+                insert(data: $data) @meta(table: "Villain", insert: true) { id name }
             }"#,
         )?;
-        let sql = r#"WITH "result" as (INSERT INTO "Villain" ("name") VALUES ('Ronan the Accuser'), ('Red Skull'), ('The Vulture') RETURNING "id", "name") SELECT json_build_object('data', json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
+        let sql = r#"WITH "result" as (INSERT INTO "Villain" ("name") VALUES ($1), ($2), ($3) RETURNING "id", "name") SELECT json_build_object('data', json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast, &None, None)?;
+        let (statement, _params) = gql2sql(
+            gqlast,
+            &Some(json!({
+                "data": [
+                    { "name": "Ronan the Accuser" },
+                    { "name": "Red Skull" },
+                    { "name": "The Vulture" }
+                ]
+            })),
+            None,
+        )?;
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -2522,7 +2542,7 @@ mod tests {
             None,
         )?;
         println!("{:?}", statement.to_string());
-        println!("{:?}", params);
+        println!("{params:?}");
         // assert_eq!(statement.to_string(), sql);
         Ok(())
     }

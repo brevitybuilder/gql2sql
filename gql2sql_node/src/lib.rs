@@ -10,8 +10,9 @@ pub struct GqlResult {
 }
 
 #[napi]
+#[must_use]
 pub fn gql2sql(query: String, vars: Option<Value>) -> Option<GqlResult> {
-  if let Ok(ast) = parse_query(&query) {
+  if let Ok(ast) = parse_query(query) {
     if let Ok((sql, params)) = gql2sql_rs(ast, &vars, None) {
       return Some(GqlResult {
         sql: sql.to_string(),
@@ -19,5 +20,5 @@ pub fn gql2sql(query: String, vars: Option<Value>) -> Option<GqlResult> {
       });
     }
   }
-  return None;
+  None
 }

@@ -13,7 +13,7 @@ default = ["console_error_panic_hook"]
 [dependencies]
 cfg-if = "1.0.0"
 worker = "0.0.16"
-serde_json = "1.0.95"
+serde_json = "1.0.96"
 serde = { version = "1.0.160", features = ["derive"] }
 async-graphql-parser = "5.0.7"
 gql2sql = { path = "../gql2sql" }

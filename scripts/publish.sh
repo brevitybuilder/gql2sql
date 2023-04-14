@@ -9,7 +9,7 @@ if ! git diff-index --quiet HEAD --; then
 fi
 
 bump=$1
-
+cargo bump "$bump"
 cd gql2sql_node
 npm --no-git-tag-version version "$bump"
 npm pkg get version | jq -r '.' > ../version.txt
