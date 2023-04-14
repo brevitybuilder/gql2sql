@@ -63,9 +63,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@brevity-builder/gql2sql-darwin-arm64@npm:0.6.4":
-  version: 0.6.4
-  resolution: "@brevity-builder/gql2sql-darwin-arm64@npm:0.6.4"
+"@brevity-builder/gql2sql-darwin-arm64@npm:0.10.0":
+  version: 0.10.0
+  resolution: "@brevity-builder/gql2sql-darwin-arm64@npm:0.10.0"
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
@@ -146,7 +146,7 @@ __metadata:
   dependencies:
     "@brevity-builder/gql2sql-android-arm-eabi": 0.6.4
     "@brevity-builder/gql2sql-android-arm64": 0.6.4
-    "@brevity-builder/gql2sql-darwin-arm64": 0.6.4
+    "@brevity-builder/gql2sql-darwin-arm64": 0.10.0
     "@brevity-builder/gql2sql-darwin-x64": 0.6.4
     "@brevity-builder/gql2sql-freebsd-x64": 0.6.4
     "@brevity-builder/gql2sql-linux-arm-gnueabihf": 0.6.4
