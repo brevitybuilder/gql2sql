@@ -10,7 +10,7 @@ fi
 
 bump=$1
 
-cargo relase "$bump" --no-publish --no-push --no-tag --execute --no-confirm
+cargo release "$bump" --no-publish --no-push --no-tag --execute --no-confirm
 
 cd gql2sql_node
 npm --no-git-tag-version version "$bump"
