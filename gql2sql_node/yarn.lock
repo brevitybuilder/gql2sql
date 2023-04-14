@@ -98,9 +98,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@brevity-builder/gql2sql-linux-arm64-musl@npm:0.6.4":
-  version: 0.6.4
-  resolution: "@brevity-builder/gql2sql-linux-arm64-musl@npm:0.6.4"
+"@brevity-builder/gql2sql-linux-arm64-musl@npm:0.10.0":
+  version: 0.10.0
+  resolution: "@brevity-builder/gql2sql-linux-arm64-musl@npm:0.10.0"
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
@@ -151,7 +151,7 @@ __metadata:
     "@brevity-builder/gql2sql-freebsd-x64": 0.6.4
     "@brevity-builder/gql2sql-linux-arm-gnueabihf": 0.6.4
     "@brevity-builder/gql2sql-linux-arm64-gnu": 0.6.4
-    "@brevity-builder/gql2sql-linux-arm64-musl": 0.6.4
+    "@brevity-builder/gql2sql-linux-arm64-musl": 0.10.0
     "@brevity-builder/gql2sql-linux-x64-gnu": 0.6.4
     "@brevity-builder/gql2sql-linux-x64-musl": 0.6.4
     "@brevity-builder/gql2sql-win32-arm64-msvc": 0.6.4
