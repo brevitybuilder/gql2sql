@@ -1,6 +1,6 @@
 {
   "name": "@brevity-builder/gql2sql-linux-x64-musl",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "os": [
     "linux"
   ],
