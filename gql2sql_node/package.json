@@ -108,7 +108,7 @@
     "@brevity-builder/gql2sql-android-arm-eabi": "0.6.4",
     "@brevity-builder/gql2sql-android-arm64": "0.6.4",
     "@brevity-builder/gql2sql-darwin-arm64": "0.6.4",
-    "@brevity-builder/gql2sql-darwin-x64": "0.6.4",
+    "@brevity-builder/gql2sql-darwin-x64": "0.10.0",
     "@brevity-builder/gql2sql-freebsd-x64": "0.6.4",
     "@brevity-builder/gql2sql-linux-arm-gnueabihf": "0.6.4",
     "@brevity-builder/gql2sql-linux-arm64-gnu": "0.6.4",
