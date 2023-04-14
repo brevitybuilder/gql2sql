@@ -1965,6 +1965,11 @@ pub fn gql2sql<'a>(
                                 &variables,
                                 &sql_vars,
                             )?;
+                            let params = if sql_vars.is_empty() {
+                                None
+                            } else {
+                                Some(sql_vars.into_values().collect())
+                            };
                             return Ok((
                                 wrap_mutation(
                                     key,
@@ -1996,7 +2001,7 @@ pub fn gql2sql<'a>(
                                         returning: Some(projection),
                                     },
                                 ),
-                                None,
+                                params,
                             ));
                         } else if is_update {
                             let (projection, _, _) = get_projection(
@@ -2008,6 +2013,11 @@ pub fn gql2sql<'a>(
                             )?;
                             let (selection, assignments) =
                                 get_mutation_assignments(&field.arguments, &variables, &sql_vars)?;
+                            let params = if sql_vars.is_empty() {
+                                None
+                            } else {
+                                Some(sql_vars.into_values().collect())
+                            };
                             return Ok((
                                 wrap_mutation(
                                     key,
@@ -2030,7 +2040,7 @@ pub fn gql2sql<'a>(
                                         returning: Some(projection),
                                     },
                                 ),
-                                None,
+                                params,
                             ));
                         }
                     }
@@ -2110,7 +2120,7 @@ mod tests {
         let sql = r#"WITH "result" as (INSERT INTO "Villain" ("name") VALUES ($1), ($2), ($3) RETURNING "id", "name") SELECT json_build_object('data', json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(
+        let (statement, params) = gql2sql(
             gqlast,
             &Some(json!({
                 "data": [
