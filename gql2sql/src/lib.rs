@@ -1563,9 +1563,10 @@ pub fn parse_query_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bo
 }
 
 #[must_use]
-pub fn parse_mutation_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bool, bool)> {
+pub fn parse_mutation_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bool, bool, bool)> {
     let mut is_insert = false;
     let mut is_update = false;
+    let mut is_delete = false;
     let mut name = field.name.node.as_ref();
     let key = field
         .alias
@@ -1578,6 +1579,9 @@ pub fn parse_mutation_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str,
     } else if name.starts_with("update_") {
         name = &name[7..];
         is_update = true;
+    } else if name.starts_with("delete_") {
+        name = &name[7..];
+        is_delete = true;
     }
 
     if let Some(p_directive) = field
@@ -1600,15 +1604,23 @@ pub fn parse_mutation_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str,
                 if let GqlValue::Boolean(single) = &argument.node {
                     is_update = *single;
                 }
+            } else if arg_name == "delete" {
+                if let GqlValue::Boolean(single) = &argument.node {
+                    is_delete = *single;
+                }
             }
         });
     }
 
     if is_insert && is_update {
         return Err(anyhow!("Mutation cannot be both insert and update"));
+    } else if is_insert && is_delete {
+        return Err(anyhow!("Mutation cannot be both insert and delete"));
+    } else if is_update && is_delete {
+        return Err(anyhow!("Mutation cannot be both update and delete"));
     }
 
-    Ok((name, key, is_insert, is_update))
+    Ok((name, key, is_insert, is_update, is_delete))
 }
 
 #[must_use]
@@ -1954,7 +1966,7 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
-                        let (name, key, is_insert, is_update) = parse_mutation_meta(field)?;
+                        let (name, key, is_insert, is_update, is_delete) = parse_mutation_meta(field)?;
                         if is_insert {
                             let (columns, rows) =
                                 get_mutation_columns(&field.arguments, &variables, &sql_vars)?;
@@ -2036,6 +2048,41 @@ pub fn gql2sql<'a>(
                                         },
                                         assignments,
                                         from: None,
+                                        selection,
+                                        returning: Some(projection),
+                                    },
+                                ),
+                                params,
+                            ));
+                        } else if is_delete {
+                            let (projection, _, _) = get_projection(
+                                &field.selection_set.node.items,
+                                name,
+                                None,
+                                &variables,
+                                &sql_vars,
+                            )?;
+                            let (selection, _) =
+                                get_mutation_assignments(&field.arguments, &variables, &sql_vars)?;
+                            let params = if sql_vars.is_empty() {
+                                None
+                            } else {
+                                Some(sql_vars.into_values().collect())
+                            };
+                            return Ok((
+                                wrap_mutation(
+                                    key,
+                                    Statement::Delete {
+                                        table_name: TableFactor::Table {
+                                            name: ObjectName(vec![Ident {
+                                                value: name.to_string(),
+                                                quote_style: Some(QUOTE_CHAR),
+                                            }]),
+                                            alias: None,
+                                            args: None,
+                                            with_hints: vec![],
+                                        },
+                                        using: None,
                                         selection,
                                         returning: Some(projection),
                                     },
