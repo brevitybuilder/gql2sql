@@ -1492,7 +1492,7 @@ fn get_mutation_assignments<'a>(
             value: Expr::Function(Function {
                 name: ObjectName(vec![Ident {
                     value: "now".to_string(),
-                    quote_style: None
+                    quote_style: None,
                 }]),
                 special: false,
                 args: vec![],
@@ -2063,8 +2063,12 @@ pub fn gql2sql<'a>(
                                 &variables,
                                 &sql_vars,
                             )?;
-                            let (selection, assignments) =
-                                get_mutation_assignments(&field.arguments, &variables, &sql_vars, has_updated_at_directive)?;
+                            let (selection, assignments) = get_mutation_assignments(
+                                &field.arguments,
+                                &variables,
+                                &sql_vars,
+                                has_updated_at_directive,
+                            )?;
                             let params = if sql_vars.is_empty() {
                                 None
                             } else {
@@ -2102,8 +2106,12 @@ pub fn gql2sql<'a>(
                                 &variables,
                                 &sql_vars,
                             )?;
-                            let (selection, _) =
-                                get_mutation_assignments(&field.arguments, &variables, &sql_vars, false)?;
+                            let (selection, _) = get_mutation_assignments(
+                                &field.arguments,
+                                &variables,
+                                &sql_vars,
+                                false,
+                            )?;
                             let params = if sql_vars.is_empty() {
                                 None
                             } else {
