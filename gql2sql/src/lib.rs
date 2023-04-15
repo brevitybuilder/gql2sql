@@ -1479,9 +1479,28 @@ fn get_mutation_assignments<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a IndexMap<Name, JsonValue>,
+    has_updated_at_directive: bool,
 ) -> AnyResult<(Option<Expr>, Vec<Assignment>)> {
     let mut selection = None;
     let mut assignments = vec![];
+    if has_updated_at_directive {
+        assignments.push(Assignment {
+            id: vec![Ident {
+                value: "updated_at".to_string(),
+                quote_style: Some(QUOTE_CHAR),
+            }],
+            value: Expr::Function(Function {
+                name: ObjectName(vec![Ident {
+                    value: "now".to_string(),
+                    quote_style: None
+                }]),
+                special: false,
+                args: vec![],
+                over: None,
+                distinct: false,
+            }),
+        });
+    }
     for argument in arguments {
         let (p_key, p_value) = argument;
         let (key, mut value) = (&p_key.node, &p_value.node);
@@ -2032,6 +2051,11 @@ pub fn gql2sql<'a>(
                                 params,
                             ));
                         } else if is_update {
+                            let has_updated_at_directive = field
+                                .directives
+                                .iter()
+                                .any(|d| d.node.name.node == "updatedAt");
+                            println!("has_updated_at_directive: {}", has_updated_at_directive);
                             let (projection, _, _) = get_projection(
                                 &field.selection_set.node.items,
                                 name,
@@ -2040,7 +2064,7 @@ pub fn gql2sql<'a>(
                                 &sql_vars,
                             )?;
                             let (selection, assignments) =
-                                get_mutation_assignments(&field.arguments, &variables, &sql_vars)?;
+                                get_mutation_assignments(&field.arguments, &variables, &sql_vars, has_updated_at_directive)?;
                             let params = if sql_vars.is_empty() {
                                 None
                             } else {
@@ -2079,7 +2103,7 @@ pub fn gql2sql<'a>(
                                 &sql_vars,
                             )?;
                             let (selection, _) =
-                                get_mutation_assignments(&field.arguments, &variables, &sql_vars)?;
+                                get_mutation_assignments(&field.arguments, &variables, &sql_vars, false)?;
                             let params = if sql_vars.is_empty() {
                                 None
                             } else {
@@ -2210,7 +2234,7 @@ mod tests {
                     increment: {
                         number_of_movies: 1
                     }
-                ) @meta(table: "Hero", update: true) {
+                ) @meta(table: "Hero", update: true) @updatedAt {
                     id
                     name
                     secret_identity
