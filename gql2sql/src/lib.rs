@@ -1120,6 +1120,7 @@ fn get_filter_query<'a>(
 
 fn get_order<'a>(
     order: &IndexMap<Name, GqlValue>,
+    variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a IndexMap<Name, JsonValue>,
 ) -> AnyResult<Vec<OrderByExpr>> {
     if order.contains_key("expr") && order.contains_key("dir") {
@@ -1183,7 +1184,12 @@ fn get_order<'a>(
         }
     }
     let mut order_by = vec![];
-    for (key, value) in order.iter() {
+    for (key, mut value) in order.iter() {
+        if let GqlValue::Variable(name) = value {
+            if let Some(new_value) = variables.get(name) {
+                value = new_value
+            }
+        }
         match value {
             GqlValue::String(s) => {
                 order_by.push(OrderByExpr {
@@ -1207,15 +1213,19 @@ fn get_order<'a>(
                 });
             }
             GqlValue::Variable(name) => {
-                let index = sql_vars
-                    .get_index_of(name)
-                    .map(|i| i + 1)
-                    .ok_or(anyhow!("variable not found"))?;
-                order_by.push(OrderByExpr {
-                    expr: Expr::Value(Value::Placeholder(format!("${index}"))),
-                    asc: None,
-                    nulls_first: None,
-                });
+                if let JsonValue::String(value) = sql_vars
+                    .get(name)
+                    .ok_or(anyhow!("Variable {} not found in sql_vars", name.as_str()))?
+                {
+                    order_by.push(OrderByExpr {
+                        expr: Expr::Identifier(Ident {
+                            value: key.as_str().to_owned(),
+                            quote_style: Some(QUOTE_CHAR),
+                        }),
+                        asc: Some(value == "ASC"),
+                        nulls_first: None,
+                    });
+                }
             }
             _ => return Err(anyhow!("Invalid value for order expression")),
         }
@@ -1251,6 +1261,9 @@ fn flatten<'a>(
             GqlValue::Variable(name)
         }
         JsonValue::String(s) => {
+            if s == "ASC" || s == "DESC" {
+                return GqlValue::Enum(Name::new(s.clone()));
+            }
             sql_vars.insert(name.clone(), JsonValue::String(s.clone()));
             GqlValue::Variable(name)
         }
@@ -1339,7 +1352,7 @@ fn parse_args<'a>(
                 }
                 match d.get("order") {
                     Some(GqlValue::Object(order)) => {
-                        distinct_order = Some(get_order(order, sql_vars)?);
+                        distinct_order = Some(get_order(order, variables, sql_vars)?);
                     }
                     Some(GqlValue::List(list)) => {
                         let order = list
@@ -1348,7 +1361,7 @@ fn parse_args<'a>(
                                 GqlValue::Object(o) => Some(o),
                                 _ => None,
                             })
-                            .map(|o| get_order(o, sql_vars))
+                            .map(|o| get_order(o, variables, sql_vars))
                             .collect::<AnyResult<Vec<Vec<OrderByExpr>>>>()?;
                         distinct_order = Some(order.into_iter().flatten().collect());
                     }
@@ -1358,7 +1371,7 @@ fn parse_args<'a>(
                 }
             }
             ("order", GqlValue::Object(order)) => {
-                order_by = get_order(&order, sql_vars)?;
+                order_by = get_order(&order, variables, sql_vars)?;
             }
             ("order", GqlValue::List(list)) => {
                 let items = list
@@ -1367,7 +1380,7 @@ fn parse_args<'a>(
                         GqlValue::Object(o) => Some(o),
                         _ => None,
                     })
-                    .map(|o| get_order(o, sql_vars))
+                    .map(|o| get_order(o, variables, sql_vars))
                     .collect::<AnyResult<Vec<Vec<OrderByExpr>>>>()?;
                 order_by.append(
                     items
@@ -2575,28 +2588,22 @@ mod tests {
     #[test]
     fn query_json_arg() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
-            r#"query GetData($first: Int!, $after: Int!, $order: OrderBy!) {
-                agg @meta(table: "tMjcdRYigDTiKeFcdfciTM", aggregate: true) {
-                    count
+            r#"
+                query BrevityQuery($order_getTodoList: tXY7bJTNXP7RAhLFGybN4d_Order) {
+                getTodoList(order: $order_getTodoList) @meta(table: "tXY7bJTNXP7RAhLFGybN4d") {
+                    id
+                    cJ9jmpnjfYhRbCQBpWAzB8
+                    cPQdcYiWcPWWVeKVniUMjy
                 }
-                tMjcdRYigDTiKeFcdfciTM(first: $first, after: $after, order: $order) @meta(table: "tMjcdRYigDTiKeFcdfciTM") {
-                    id: id
-                    created_at: created_at
-                    updated_at: updated_at
-                    bio: cbCFaUbBCaDQxRy3c7wPWi
-                    username: cF6dbD8zBdHUJeiPaNg8Ex,
-                    posts @relation(table: "tgwxVQxPi8EnKDwwWpJxbi", fields: ["cYzdX9KBkrpyJyRqg7hrJd"], references: ["id"], aggregate: true) { count }
                 }
-            }"#,
+            "#,
         )?;
         // let sql = r#""#;
         let (statement, params) = gql2sql(
             gqlast,
             &Some(json!({
-                "first": 10,
-                "after": 0,
-                "order": {
-                    "created_at": "DESC"
+                "order_getTodoList": {
+                    "cPQdcYiWcPWWVeKVniUMjy": "ASC"
                 }
             })),
             None,
