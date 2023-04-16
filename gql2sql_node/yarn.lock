@@ -56,9 +56,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@brevity-builder/gql2sql-android-arm64@npm:0.6.4":
-  version: 0.6.4
-  resolution: "@brevity-builder/gql2sql-android-arm64@npm:0.6.4"
+"@brevity-builder/gql2sql-android-arm64@npm:1.0.9":
+  version: 1.0.9
+  resolution: "@brevity-builder/gql2sql-android-arm64@npm:1.0.9"
   conditions: os=android & cpu=arm64
   languageName: node
   linkType: hard
@@ -145,7 +145,7 @@ __metadata:
   resolution: "@brevity-builder/gql2sql@workspace:."
   dependencies:
     "@brevity-builder/gql2sql-android-arm-eabi": 0.6.4
-    "@brevity-builder/gql2sql-android-arm64": 0.6.4
+    "@brevity-builder/gql2sql-android-arm64": 1.0.9
     "@brevity-builder/gql2sql-darwin-arm64": 0.6.4
     "@brevity-builder/gql2sql-darwin-x64": 0.6.4
     "@brevity-builder/gql2sql-freebsd-x64": 0.6.4
