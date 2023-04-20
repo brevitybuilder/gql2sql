@@ -54,6 +54,17 @@ fn get_value<'a>(value: &'a GqlValue, sql_vars: &'a IndexMap<Name, JsonValue>) -
     }
 }
 
+fn get_logical_operator(op: &str) -> AnyResult<BinaryOperator> {
+    let value = match op {
+        "AND" => BinaryOperator::And,
+        "OR" => BinaryOperator::Or,
+        _ => {
+            return Err(anyhow!("logical operator not supported: {}", op));
+        }
+    };
+    Ok(value)
+}
+
 fn get_op(op: &str) -> AnyResult<BinaryOperator> {
     let value = match op {
         "eq" | "equals" => BinaryOperator::Eq,
@@ -71,186 +82,115 @@ fn get_op(op: &str) -> AnyResult<BinaryOperator> {
 
 fn get_expr<'a>(
     left: Expr,
-    args: &'a GqlValue,
+    operator: &'a str,
+    value: &'a GqlValue,
     variables: &'a IndexMap<Name, JsonValue>,
 ) -> AnyResult<Option<Expr>> {
-    if let GqlValue::Object(o) = args {
-        return match o.len() {
-            0 => Ok(None),
-            1 => {
-                let (op, value) = o.iter().next().ok_or(anyhow!("list to have one item"))?;
-                let right_value = get_value(value, variables)?;
-                match op.as_str() {
-                    "like" => Ok(Some(Expr::Like {
-                        negated: false,
-                        expr: Box::new(left),
-                        pattern: Box::new(right_value),
-                        escape_char: None,
-                    })),
-                    "ilike" => Ok(Some(Expr::ILike {
-                        negated: false,
-                        expr: Box::new(left),
-                        pattern: Box::new(right_value),
-                        escape_char: None,
-                    })),
-                    _ => {
-                        let op = get_op(op.as_ref())?;
-                        Ok(Some(Expr::BinaryOp {
-                            left: Box::new(left),
-                            op,
-                            right: Box::new(right_value),
-                        }))
-                    }
-                }
+    let right_value = get_value(value, variables)?;
+    match operator {
+        "like" => Ok(Some(Expr::Like {
+            negated: false,
+            expr: Box::new(left),
+            pattern: Box::new(right_value),
+            escape_char: None,
+        })),
+        "ilike" => Ok(Some(Expr::ILike {
+            negated: false,
+            expr: Box::new(left),
+            pattern: Box::new(right_value),
+            escape_char: None,
+        })),
+        _ => {
+            let op = get_op(operator)?;
+            Ok(Some(Expr::BinaryOp {
+                left: Box::new(left),
+                op,
+                right: Box::new(right_value),
+            }))
+        }
+    }
+}
+
+fn get_string_or_variable(
+    value: &GqlValue,
+    variables: &IndexMap<Name, JsonValue>,
+) -> AnyResult<String> {
+    match value {
+        GqlValue::Variable(v) => {
+            if let Some(JsonValue::String(s)) = variables.get(v) {
+                Ok(s.clone())
+            } else {
+                Err(anyhow!("variable not found"))
             }
-            _ => {
-                let mut conditions: Vec<Expr> = o
+        }
+        GqlValue::String(s) => Ok(s.clone()),
+        _ => Err(anyhow!("value not supported")),
+    }
+}
+
+fn get_filter(
+    args: &IndexMap<Name, GqlValue>,
+    variables: &IndexMap<Name, JsonValue>,
+) -> AnyResult<Option<Expr>> {
+    let field = args
+        .get("field")
+        .map(|v| get_string_or_variable(v, variables))
+        .ok_or(anyhow!("field not found"))??;
+    let operator = args
+        .get("operator")
+        .map(|v| get_string_or_variable(v, variables))
+        .ok_or(anyhow!("operator not found"))??;
+    if let Some(value) = args.get("value") {
+        let left = Expr::Identifier(Ident {
+            value: field,
+            quote_style: Some(QUOTE_CHAR),
+        });
+        let primary = get_expr(left, operator.as_str(), value, variables)?;
+        if args.contains_key("children") {
+            if let Some(GqlValue::List(children)) = args.get("children") {
+                let op = if let Some(GqlValue::String(op)) = args.get("logicalOperator") {
+                    get_logical_operator(op.as_str())?
+                } else {
+                    BinaryOperator::And
+                };
+                if let Some(filters) = children
                     .iter()
-                    .rev()
-                    .map(|(op, v)| {
-                        let op = get_op(op.as_ref())?;
-                        let value = get_value(v, variables)?;
-                        Ok(Expr::BinaryOp {
-                            left: Box::new(left.clone()),
-                            op,
-                            right: Box::new(value),
-                        })
+                    .map(|v| match v {
+                        GqlValue::Object(o) => get_filter(o, variables),
+                        _ => Ok(None),
                     })
-                    .collect::<AnyResult<Vec<Expr>>>()?;
-                let mut last_expr = conditions.remove(0);
-                for condition in conditions {
-                    let expr = Expr::BinaryOp {
-                        left: Box::new(condition),
-                        op: BinaryOperator::And,
-                        right: Box::new(last_expr),
-                    };
-                    last_expr = expr;
+                    .fold(Ok(primary), |acc: AnyResult<Option<Expr>>, item| {
+                        if let Ok(Some(acc)) = acc {
+                            let item = item?;
+                            let expr = Expr::BinaryOp {
+                                left: Box::new(acc),
+                                op: op.clone(),
+                                right: Box::new(item.ok_or(anyhow!("invalid filter"))?),
+                            };
+                            Ok(Some(expr))
+                        } else if let Ok(None) = acc {
+                            Ok(None)
+                        } else {
+                            Err(anyhow!("invalid filter"))
+                        }
+                    })?
+                {
+                    return Ok(Some(Expr::Nested(Box::new(filters))));
                 }
-                Ok(Some(last_expr))
+                return Ok(None);
             }
-        };
-    };
+        } else {
+            return Ok(primary);
+        }
+    }
     Ok(None)
 }
 
-fn handle_filter_arg<'a>(
-    key: &'a str,
-    value: &GqlValue,
-    variables: &'a IndexMap<Name, JsonValue>,
-) -> AnyResult<Option<Expr>> {
-    let value = match (key, value) {
-        ("OR" | "or", GqlValue::List(list)) => match list.len() {
-            0 => None,
-            1 => match list.get(0).ok_or(anyhow!("list to have one item"))? {
-                GqlValue::Object(o) => get_filter(o, variables)?,
-                _ => None,
-            },
-            _ => {
-                let mut conditions = list
-                    .iter()
-                    .map(|v| match v {
-                        GqlValue::Object(o) => get_filter(o, variables),
-                        _ => Ok(None),
-                    })
-                    .collect::<AnyResult<Vec<Option<Expr>>>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<Expr>>();
-
-                let mut last_expr = conditions.remove(0);
-                for condition in conditions {
-                    let expr = Expr::BinaryOp {
-                        left: Box::new(last_expr),
-                        op: BinaryOperator::Or,
-                        right: Box::new(condition),
-                    };
-                    last_expr = expr;
-                }
-                Some(Expr::Nested(Box::new(last_expr)))
-            }
-        },
-        ("AND" | "and", GqlValue::List(list)) => match list.len() {
-            0 => None,
-            1 => match list.get(0).expect("list to have one item") {
-                GqlValue::Object(o) => get_filter(o, variables)?,
-                _ => None,
-            },
-            _ => {
-                let mut conditions = list
-                    .iter()
-                    .map(|v| match v {
-                        GqlValue::Object(o) => get_filter(o, variables),
-                        _ => Ok(None),
-                    })
-                    .collect::<AnyResult<Vec<Option<Expr>>>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<Expr>>();
-                let mut last_expr = conditions.remove(0);
-                for condition in conditions {
-                    let expr = Expr::BinaryOp {
-                        left: Box::new(condition),
-                        op: BinaryOperator::And,
-                        right: Box::new(last_expr),
-                    };
-                    last_expr = expr;
-                }
-                Some(last_expr)
-            }
-        },
-        _ => {
-            let left = Expr::Identifier(Ident {
-                value: key.to_owned(),
-                quote_style: Some(QUOTE_CHAR),
-            });
-            get_expr(left, value, variables)?
-        }
-    };
-    Ok(value)
-}
-
-fn get_filter<'a>(
-    args: &IndexMap<Name, GqlValue>,
-    variables: &'a IndexMap<Name, JsonValue>,
-) -> AnyResult<Option<Expr>> {
-    let value = match args.len() {
-        0 => None,
-        1 => {
-            let (key, value) = args.iter().next().expect("list to have one item");
-            handle_filter_arg(key.as_str(), value, variables)?
-        }
-        _ => {
-            let mut conditions: Vec<Expr> = args
-                .into_iter()
-                .rev()
-                .map(|(key, value)| handle_filter_arg(key, value, variables))
-                .collect::<AnyResult<Vec<Option<Expr>>>>()?
-                .into_iter()
-                .flatten()
-                .collect();
-            if conditions.is_empty() {
-                return Ok(None);
-            }
-            let mut last_expr = conditions.remove(0);
-            for condition in conditions {
-                let expr = Expr::BinaryOp {
-                    left: Box::new(condition),
-                    op: BinaryOperator::And,
-                    right: Box::new(last_expr),
-                };
-                last_expr = expr;
-            }
-            Some(last_expr)
-        }
-    };
-    Ok(value)
-}
-
-fn get_agg_query<'a>(
+fn get_agg_query(
     aggs: Vec<FunctionArg>,
     from: Vec<TableWithJoins>,
     selection: Option<Expr>,
-    alias: &'a str,
+    alias: &str,
 ) -> SetExpr {
     SetExpr::Select(Box::new(Select {
         distinct: false,
@@ -284,13 +224,13 @@ fn get_agg_query<'a>(
     }))
 }
 
-fn get_root_query<'a>(
+fn get_root_query(
     projection: Vec<SelectItem>,
     from: Vec<TableWithJoins>,
     selection: Option<Expr>,
     merges: &[Merge],
     is_single: bool,
-    alias: &'a str,
+    alias: &str,
 ) -> SetExpr {
     let mut base = Expr::Function(Function {
         name: ObjectName(vec![Ident {
@@ -443,7 +383,7 @@ fn get_root_query<'a>(
     }))
 }
 
-fn get_agg_agg_projection<'a>(field: &'a Field) -> Vec<FunctionArg> {
+fn get_agg_agg_projection(field: &Field) -> Vec<FunctionArg> {
     let name = field.name.node.as_ref();
     match name {
         "count" => {
@@ -517,9 +457,7 @@ fn get_agg_agg_projection<'a>(field: &'a Field) -> Vec<FunctionArg> {
     }
 }
 
-fn get_aggregate_projection<'a>(
-    items: &'a Vec<Positioned<Selection>>,
-) -> AnyResult<Vec<FunctionArg>> {
+fn get_aggregate_projection(items: &Vec<Positioned<Selection>>) -> AnyResult<Vec<FunctionArg>> {
     let mut aggs = Vec::new();
     for selection in items {
         match &selection.node {
@@ -1006,12 +944,12 @@ fn get_relation<'a>(
     Ok((relation, fk, pk, is_single, is_aggregate))
 }
 
-fn get_filter_query<'a>(
+fn get_filter_query(
     selection: Option<Expr>,
     order_by: Vec<OrderByExpr>,
     first: Option<Expr>,
     after: Option<Offset>,
-    table_name: &'a str,
+    table_name: &str,
     distinct: Option<Vec<String>>,
     distinct_order: Option<Vec<OrderByExpr>>,
 ) -> Query {
@@ -1062,7 +1000,13 @@ fn get_filter_query<'a>(
                 joins: vec![],
             }],
             lateral_views: vec![],
-            selection,
+            selection: selection.map(|s| {
+                if let Expr::Nested(nested) = s {
+                    *nested
+                } else {
+                    s
+                }
+            }),
             group_by: vec![],
             cluster_by: vec![],
             distribute_by: vec![],
@@ -1249,11 +1193,7 @@ fn get_distinct(distinct: Vec<GqlValue>) -> Option<Vec<String>> {
     }
 }
 
-fn flatten<'a>(
-    name: Name,
-    value: &JsonValue,
-    sql_vars: &'a mut IndexMap<Name, JsonValue>,
-) -> GqlValue {
+fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValue>) -> GqlValue {
     match value {
         JsonValue::Null => GqlValue::Null,
         JsonValue::Bool(b) => {
@@ -1296,8 +1236,8 @@ fn flatten<'a>(
     }
 }
 
-fn flatten_variables<'a>(
-    variables: &'a Option<JsonValue>,
+fn flatten_variables(
+    variables: &Option<JsonValue>,
     definitions: Vec<Positioned<VariableDefinition>>,
 ) -> (IndexMap<Name, GqlValue>, IndexMap<Name, JsonValue>) {
     let mut sql_vars = IndexMap::new();
@@ -1540,13 +1480,13 @@ fn get_mutation_assignments<'a>(
                     });
                 }
             }
-            _ => todo!(),
+            _ => return Err(anyhow!("Invalid argument for update at: {}", key)),
         }
     }
     Ok((selection, assignments))
 }
 
-pub fn parse_query_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bool, bool)> {
+pub fn parse_query_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool)> {
     let mut is_aggregate = false;
     let mut is_single = false;
     let mut name = field.name.node.as_str();
@@ -1595,9 +1535,7 @@ pub fn parse_query_meta<'a>(field: &'a Field) -> AnyResult<(&'a str, &'a str, bo
 }
 
 #[must_use]
-pub fn parse_mutation_meta<'a>(
-    field: &'a Field,
-) -> AnyResult<(&'a str, &'a str, bool, bool, bool)> {
+pub fn parse_mutation_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool, bool)> {
     let mut is_insert = false;
     let mut is_update = false;
     let mut is_delete = false;
@@ -1631,16 +1569,16 @@ pub fn parse_mutation_meta<'a>(
                     name = table.as_ref();
                 }
             } else if arg_name == "insert" {
-                if let GqlValue::Boolean(aggregate) = &argument.node {
-                    is_insert = *aggregate;
+                if let GqlValue::Boolean(insert) = &argument.node {
+                    is_insert = *insert;
                 }
             } else if arg_name == "update" {
-                if let GqlValue::Boolean(single) = &argument.node {
-                    is_update = *single;
+                if let GqlValue::Boolean(update) = &argument.node {
+                    is_update = *update;
                 }
             } else if arg_name == "delete" {
-                if let GqlValue::Boolean(single) = &argument.node {
-                    is_delete = *single;
+                if let GqlValue::Boolean(delete) = &argument.node {
+                    is_delete = *delete;
                 }
             }
         });
@@ -1658,7 +1596,7 @@ pub fn parse_mutation_meta<'a>(
 }
 
 #[must_use]
-pub fn wrap_mutation<'a>(key: &'a str, value: Statement) -> Statement {
+pub fn wrap_mutation(key: &str, value: Statement) -> Statement {
     Statement::Query(Box::new(Query {
         with: Some(With {
             cte_tables: vec![Cte {
@@ -2055,7 +1993,6 @@ pub fn gql2sql<'a>(
                                 .directives
                                 .iter()
                                 .any(|d| d.node.name.node == "updatedAt");
-                            println!("has_updated_at_directive: {}", has_updated_at_directive);
                             let (projection, _, _) = get_projection(
                                 &field.selection_set.node.items,
                                 name,
@@ -2166,7 +2103,7 @@ mod tests {
     fn query() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"query App {
-                app(filter: { id: { eq: "345810043118026832" } }, order: { name: ASC }) @meta(table: "App") {
+                app(filter: { field: "id", operator: "eq", value: "345810043118026832" }, order: { name: ASC }) @meta(table: "App") {
                     id
                     components @relation(table: "Component", field: ["appId"], references: ["id"]) {
                         id
@@ -2180,7 +2117,7 @@ mod tests {
                         }
                     }
                 }
-                Component_aggregate(filter: { appId: { eq: "345810043118026832" } }) {
+                Component_aggregate(filter: { field: "appId", operator: "eq", value: "345810043118026832" }) {
                   count
                   min {
                     createdAt
@@ -2188,7 +2125,7 @@ mod tests {
                 }
             }
             query Another {
-                Component_aggregate(filter: { appId: { eq: "345810043118026832" } }) {
+                Component_aggregate(filter: { field: "appId", operator: "eq", value: "345810043118026832" }) {
                   count
                   min {
                     createdAt
@@ -2215,7 +2152,7 @@ mod tests {
         let sql = r#"WITH "result" as (INSERT INTO "Villain" ("name") VALUES ($1), ($2), ($3) RETURNING "id", "name") SELECT json_build_object('data', json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, params) = gql2sql(
+        let (statement, _params) = gql2sql(
             gqlast,
             &Some(json!({
                 "data": [
@@ -2235,7 +2172,7 @@ mod tests {
         let gqlast = parse_query(
             r#"mutation updateHero {
                 update(
-                    filter: { secret_identity: { eq: "Sam Wilson" }},
+                    filter: { field: "secret_identity", operator: "eq", value: "Sam Wilson" },
                     set: {
                         name: "Captain America",
                     }
@@ -2250,7 +2187,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let sql = r#"WITH "result" AS (UPDATE "Hero" SET "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('data', json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
+        let sql = r#"WITH "result" AS (UPDATE "Hero" SET "updated_at" = now(), "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('data', json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
         // let dialect = PostgreSqlDialect {};
         // let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(gqlast, &None, None)?;
@@ -2264,9 +2201,14 @@ mod tests {
             r#"query GetApp($orgId: String!, $appId: String!, $branch: String!) {
       app: App_one(
         filter: {
-          orgId: { eq: $orgId }
-          id: { eq: $appId }
-          branch: { eq: $branch }
+          field: "orgId",
+          operator: "eq",
+          value: $orgId,
+          logicalOperator: "AND",
+          children: [
+            { field: "id", operator: "eq", value: $appId },
+            { field: "branch", operator: "eq", value: $branch }
+          ]
         }
       ) {
         orgId
@@ -2479,7 +2421,7 @@ mod tests {
     fn query_frag() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"query GetApp($componentId: String!, $branch: String!) {
-                component: Component_one(filter: { id : { eq: $componentId } }) {
+                component: Component_one(filter: { field: "id", operator: "eq", value: $componentId }) {
                    id
                    branch
                    ... on ComponentMeta @relation(
@@ -2489,7 +2431,13 @@ mod tests {
                         single: true
                     ) @args(
                         filter: {
-                                or: [{ branch: { eq: $branch } }, { branch: { eq: "main" } }]
+                          field: "branch"
+                          operator: "eq",
+                          value: $branch,
+                          logicalOperator: "OR",
+                          children: [
+                            { field: "branch", operator: "eq", value: "main" }
+                          ]
                         }
                     ) {
                      title
@@ -2514,7 +2462,7 @@ mod tests {
     fn query_static() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"query GetApp($componentId: String!) {
-                component: Component_one(filter: { id : { eq: $componentId } }) {
+                component: Component_one(filter: { field: "id", operator: "eq", value: $componentId }) {
                    id
                    branch
                    kind @static(value: "page")
@@ -2541,21 +2489,25 @@ mod tests {
             r#"query GetApp($componentId: String!, $branch: String!) {
                 component: Component_one(
                     filter: {
-                        id : { eq: $componentId },
-                        or: [
-                            { branch: { eq: $branch } },
-                            { branch: { eq: "main" } }
+                        field: "id",
+                        operator: "eq",
+                        value: $componentId
+                        logicalOperator: "AND",
+                        children: [
+                            { field: "branch", operator: "eq", value: $branch, logicalOperator: "OR", children: [
+                                { field: "branch", operator: "eq", value: "main" }
+                            ]}
                         ]
                     },
                     order: [
                         { orderKey: ASC }
                     ],
-                    distinct: { on: ["id"], order: [{ expr: { branch: { eq: $branch } }, dir: DESC }] }
+                    distinct: { on: ["id"], order: [{ expr: { field: "branch", operator: "eq", value: $branch }, dir: DESC }] }
                 ) {
                    id
                    branch
                    kind @static(value: "page")
-                   stuff(filter: { componentId: { eq: { _parentRef: "id" } } }) @relation(table: "Stuff") {
+                   stuff(filter: { field: "componentId", operator: "eq", value: { _parentRef: "id" } }) @relation(table: "Stuff") {
                      id
                    }
                 }
@@ -2631,7 +2583,7 @@ mod tests {
             "#,
         )?;
         // let sql = r#""#;
-        let (statement, params) = gql2sql(
+        let (_statement, _params) = gql2sql(
             gqlast,
             &Some(json!({
                 "order_getTodoList": {
@@ -2640,8 +2592,6 @@ mod tests {
             })),
             None,
         )?;
-        println!("{:?}", statement.to_string());
-        println!("{params:?}");
         // assert_eq!(statement.to_string(), sql);
         Ok(())
     }
