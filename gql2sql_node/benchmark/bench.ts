@@ -36,7 +36,7 @@ async function run() {
   await b.suite(
     'graphql',
     b.add('Native parse and convert and print', () => {
-      const result = gql2Sql(query)
+      const _result = gql2Sql(query)
     }),
     b.add('JavaScript parse and print', () => {
       const ast = parsejs(query)
