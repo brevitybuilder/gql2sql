@@ -1,12 +1,22 @@
 {
   "name": "@brevity-builder/gql2sql",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "",
   "main": "index.js",
   "repository": "git@github.com:@brevity-builder/gql2sql",
   "license": "MIT",
-  "keywords": ["napi-rs", "NAPI", "N-API", "Rust", "node-addon", "node-addon-api"],
-  "files": ["index.d.ts", "index.js"],
+  "keywords": [
+    "napi-rs",
+    "NAPI",
+    "N-API",
+    "Rust",
+    "node-addon",
+    "node-addon-api"
+  ],
+  "files": [
+    "index.d.ts",
+    "index.js"
+  ],
   "napi": {
     "name": "gql2sql",
     "triples": {
@@ -60,12 +70,20 @@
     "typescript": "^5.0.4"
   },
   "lint-staged": {
-    "*.@(js|ts|tsx)": ["eslint -c .eslintrc.yml --fix"],
-    "*.@(js|ts|tsx|yml|yaml|md|json)": ["prettier --write"]
+    "*.@(js|ts|tsx)": [
+      "eslint -c .eslintrc.yml --fix"
+    ],
+    "*.@(js|ts|tsx|yml|yaml|md|json)": [
+      "prettier --write"
+    ]
   },
   "ava": {
-    "require": ["@swc-node/register"],
-    "extensions": ["ts"],
+    "require": [
+      "@swc-node/register"
+    ],
+    "extensions": [
+      "ts"
+    ],
     "timeout": "2m",
     "workerThreads": false,
     "environmentVariables": {
