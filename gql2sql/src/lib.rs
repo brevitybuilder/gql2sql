@@ -1279,7 +1279,10 @@ fn parse_args<'a>(
         let mut value = p_value.node.clone();
         if let GqlValue::Variable(ref name) = value {
             if let Some(new_value) = variables.get(name) {
-                value = new_value.clone()
+                value = new_value.clone();
+                if let GqlValue::Null = value {
+                    continue;
+                }
             }
         }
         match (key, value) {
@@ -1374,7 +1377,10 @@ fn get_mutation_columns<'a>(
         let (key, mut value) = (&key.node, &value.node);
         if let GqlValue::Variable(name) = value {
             if let Some(new_value) = variables.get(name) {
-                value = new_value
+                value = new_value;
+                if let GqlValue::Null = value {
+                    continue;
+                }
             }
         }
         match (key.as_ref(), value) {
@@ -1446,7 +1452,10 @@ fn get_mutation_assignments<'a>(
         let (key, mut value) = (&p_key.node, &p_value.node);
         if let GqlValue::Variable(name) = value {
             if let Some(new_value) = variables.get(name) {
-                value = new_value
+                value = new_value;
+                if let GqlValue::Null = value {
+                    continue;
+                }
             }
         }
         match (key.as_ref(), value) {
@@ -2573,8 +2582,8 @@ mod tests {
     fn query_json_arg() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-                query BrevityQuery($order_getTodoList: tXY7bJTNXP7RAhLFGybN4d_Order) {
-                getTodoList(order: $order_getTodoList) @meta(table: "tXY7bJTNXP7RAhLFGybN4d") {
+                query BrevityQuery($order_getTodoList: tXY7bJTNXP7RAhLFGybN4d_Order, $filter: tXY7bJTNXP7RAhLFGybN4d_Filter) {
+                getTodoList(order: $order_getTodoList, filter: $filter) @meta(table: "tXY7bJTNXP7RAhLFGybN4d") {
                     id
                     cJ9jmpnjfYhRbCQBpWAzB8
                     cPQdcYiWcPWWVeKVniUMjy
@@ -2588,7 +2597,8 @@ mod tests {
             &Some(json!({
                 "order_getTodoList": {
                     "cPQdcYiWcPWWVeKVniUMjy": "ASC"
-                }
+                },
+                "filter": null
             })),
             None,
         )?;
