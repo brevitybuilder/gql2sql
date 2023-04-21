@@ -23,7 +23,7 @@ pub async fn main(request: Request, env: Env, ctx: worker::Context) -> Result<Re
     // Optionally, get more helpful error messages written to the console in the case of a panic.
     let router = Router::new();
     let reponse = router
-        .get("/", |_, _| Response::ok("Hello from Workers!"))
+        .get("/", |_, _| Response::ok("Nothing to see here"))
         .post_async("/graphql", |mut req, _| async move {
             let cache = Cache::default();
             if let Some(response) = cache.get(&req, false).await? {
