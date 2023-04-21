@@ -7,4 +7,4 @@ export interface GqlResult {
   sql: string
   params?: Array<any>
 }
-export function gql2Sql(query: string, vars?: any | undefined | null): GqlResult | null
+export function gql2Sql(query: string, vars?: any | undefined | null): GqlResult
