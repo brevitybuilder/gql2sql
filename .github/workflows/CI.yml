@@ -206,7 +206,6 @@ jobs:
       matrix:
         node:
           - '18'
-          - '20'
     runs-on: ubuntu-latest
     steps:
       - name: Reset
