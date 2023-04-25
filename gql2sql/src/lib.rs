@@ -490,10 +490,36 @@ fn get_join<'a>(
 ) -> AnyResult<Join> {
     let (selection, distinct, distinct_order, order_by, mut first, after) =
         parse_args(arguments, variables, sql_vars)?;
-    let (relation, fks, pks, is_single, is_aggregate) = get_relation(directives, sql_vars)?;
+    let (relation, fks, pks, is_single, is_aggregate, schema_name) =
+        get_relation(directives, sql_vars)?;
     if is_single {
         first = Some(Expr::Value(Value::Number("1".to_string(), false)));
     }
+    let table_name = schema_name.as_ref().map_or_else(
+        || {
+            ObjectName(vec![Ident {
+                value: relation.to_string(),
+                quote_style: Some(QUOTE_CHAR),
+            }])
+        },
+        |schema_name| {
+            ObjectName(vec![
+                Ident {
+                    value: schema_name.clone(),
+                    quote_style: Some(QUOTE_CHAR),
+                },
+                Ident {
+                    value: relation.to_string(),
+                    quote_style: Some(QUOTE_CHAR),
+                },
+            ])
+        },
+    );
+
+    let relation = schema_name.map_or_else(
+        || relation.clone(),
+        |schema_name| format!("{schema_name}.{relation}"),
+    );
     let sub_path = path.map_or_else(|| relation.to_string(), |v| format!("{v}.{relation}"));
     let join_filter = zip(pks, fks)
         .map(|(pk, fk)| Expr::BinaryOp {
@@ -542,7 +568,7 @@ fn get_join<'a>(
         order_by,
         first,
         after,
-        &relation,
+        table_name,
         distinct,
         distinct_order,
     );
@@ -802,7 +828,7 @@ fn get_projection<'a>(
                         .directives
                         .iter()
                         .find(|d| d.node.name.node.as_ref() == "args");
-                    let (relation, _fks, _pks, _is_single, _is_aggregate) =
+                    let (relation, _fks, _pks, _is_single, _is_aggregate, schema_name) =
                         get_relation(&frag.directives, sql_vars)?;
                     let join = get_join(
                         args.map_or(&vec![], |dir| &dir.node.arguments),
@@ -814,6 +840,9 @@ fn get_projection<'a>(
                         sql_vars,
                     )?;
                     joins.push(join);
+                    let table_name = schema_name.map_or_else(|| relation.to_string(), |schema_name| {
+                        schema_name.to_string() + "." + &relation
+                    });
                     merges.push(Merge {
                         expr: Expr::Function(Function {
                             name: ObjectName(vec![Ident {
@@ -832,11 +861,11 @@ fn get_projection<'a>(
                         }),
                         condition: Expr::IsNotNull(Box::new(Expr::CompoundIdentifier(vec![
                             Ident {
-                                value: "root.".to_string() + &relation,
+                                value: "root.".to_string() + &table_name,
                                 quote_style: Some(QUOTE_CHAR),
                             },
                             Ident {
-                                value: relation.to_string(),
+                                value: table_name,
                                 quote_style: Some(QUOTE_CHAR),
                             },
                         ]))),
@@ -884,12 +913,13 @@ fn value_to_string<'a>(
 fn get_relation<'a>(
     directives: &'a [Positioned<Directive>],
     sql_vars: &'a IndexMap<Name, JsonValue>,
-) -> AnyResult<(String, Vec<String>, Vec<String>, bool, bool)> {
+) -> AnyResult<(String, Vec<String>, Vec<String>, bool, bool, Option<String>)> {
     let mut relation: String = String::new();
     let mut fk = vec![];
     let mut pk = vec![];
     let mut is_single = false;
     let mut is_aggregate = false;
+    let mut schema_name = None;
     if let Some(p_directive) = directives
         .iter()
         .find(|d| d.node.name.node.as_str() == "relation")
@@ -902,6 +932,7 @@ fn get_relation<'a>(
                 let value = &value.node;
                 match name {
                     "table" => relation = value_to_string(value, sql_vars)?,
+                    "schema" => schema_name = Some(value_to_string(value, sql_vars)?),
                     "field" | "fields" => {
                         fk = match &value {
                             GqlValue::String(s) => vec![s.clone()],
@@ -941,7 +972,7 @@ fn get_relation<'a>(
             }
         }
     }
-    Ok((relation, fk, pk, is_single, is_aggregate))
+    Ok((relation, fk, pk, is_single, is_aggregate, schema_name))
 }
 
 fn get_filter_query(
@@ -949,7 +980,7 @@ fn get_filter_query(
     order_by: Vec<OrderByExpr>,
     first: Option<Expr>,
     after: Option<Offset>,
-    table_name: &str,
+    table_name: ObjectName,
     distinct: Option<Vec<String>>,
     distinct_order: Option<Vec<OrderByExpr>>,
 ) -> Query {
@@ -989,10 +1020,7 @@ fn get_filter_query(
             into: None,
             from: vec![TableWithJoins {
                 relation: TableFactor::Table {
-                    name: ObjectName(vec![Ident {
-                        value: table_name.to_string(),
-                        quote_style: Some(QUOTE_CHAR),
-                    }]),
+                    name: table_name,
                     alias: None,
                     args: None,
                     with_hints: vec![],
@@ -1495,10 +1523,11 @@ fn get_mutation_assignments<'a>(
     Ok((selection, assignments))
 }
 
-pub fn parse_query_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool)> {
+pub fn parse_query_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool, Option<&str>)> {
     let mut is_aggregate = false;
     let mut is_single = false;
     let mut name = field.name.node.as_str();
+    let mut schema_name = None;
     let key = field
         .alias
         .as_ref()
@@ -1532,6 +1561,10 @@ pub fn parse_query_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool)> {
                 if let GqlValue::Boolean(single) = &argument.node {
                     is_single = *single;
                 }
+            } else if arg_name == "schema" {
+                if let GqlValue::String(schema) = &argument.node {
+                    schema_name = Some(schema.as_ref());
+                }
             }
         });
     }
@@ -1540,14 +1573,17 @@ pub fn parse_query_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool)> {
         return Err(anyhow!("Query cannot be both aggregate and single"));
     }
 
-    Ok((name, key, is_aggregate, is_single))
+    Ok((name, key, is_aggregate, is_single, schema_name))
 }
 
 #[must_use]
-pub fn parse_mutation_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool, bool)> {
+pub fn parse_mutation_meta(
+    field: &Field,
+) -> AnyResult<(&str, &str, bool, bool, bool, Option<&str>)> {
     let mut is_insert = false;
     let mut is_update = false;
     let mut is_delete = false;
+    let mut schema_name = None;
     let mut name = field.name.node.as_ref();
     let key = field
         .alias
@@ -1589,6 +1625,10 @@ pub fn parse_mutation_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool, 
                 if let GqlValue::Boolean(delete) = &argument.node {
                     is_delete = *delete;
                 }
+            } else if arg_name == "schema" {
+                if let GqlValue::String(schema) = &argument.node {
+                    schema_name = Some(schema.as_ref());
+                }
             }
         });
     }
@@ -1601,7 +1641,7 @@ pub fn parse_mutation_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool, 
         return Err(anyhow!("Mutation cannot be both update and delete"));
     }
 
-    Ok((name, key, is_insert, is_update, is_delete))
+    Ok((name, key, is_insert, is_update, is_delete, schema_name))
 }
 
 #[must_use]
@@ -1787,18 +1827,39 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
-                        let (name, key, is_aggregate, is_single) = parse_query_meta(field)?;
+                        let (name, key, is_aggregate, is_single, schema_name) =
+                            parse_query_meta(field)?;
                         let (selection, distinct, distinct_order, order_by, mut first, after) =
                             parse_args(&field.arguments, &variables, &sql_vars)?;
                         if is_single {
                             first = Some(Expr::Value(Value::Number("1".to_string(), false)));
                         }
+                        let table_name = schema_name.map_or_else(
+                            || {
+                                ObjectName(vec![Ident {
+                                    value: name.to_string(),
+                                    quote_style: Some(QUOTE_CHAR),
+                                }])
+                            },
+                            |schema_name| {
+                                ObjectName(vec![
+                                    Ident {
+                                        value: schema_name.to_string(),
+                                        quote_style: Some(QUOTE_CHAR),
+                                    },
+                                    Ident {
+                                        value: name.to_string(),
+                                        quote_style: Some(QUOTE_CHAR),
+                                    },
+                                ])
+                            },
+                        );
                         let base_query = get_filter_query(
                             selection,
                             order_by,
                             first,
                             after,
-                            name,
+                            table_name,
                             distinct,
                             distinct_order,
                         );
@@ -1947,8 +2008,29 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
-                        let (name, key, is_insert, is_update, is_delete) =
+                        let (name, key, is_insert, is_update, is_delete, schema_name) =
                             parse_mutation_meta(field)?;
+
+                        let table_name = schema_name.map_or_else(
+                            || {
+                                ObjectName(vec![Ident {
+                                    value: name.to_string(),
+                                    quote_style: Some(QUOTE_CHAR),
+                                }])
+                            },
+                            |schema_name| {
+                                ObjectName(vec![
+                                    Ident {
+                                        value: schema_name.to_string(),
+                                        quote_style: Some(QUOTE_CHAR),
+                                    },
+                                    Ident {
+                                        value: name.to_string(),
+                                        quote_style: Some(QUOTE_CHAR),
+                                    },
+                                ])
+                            },
+                        );
                         if is_insert {
                             let (columns, rows) =
                                 get_mutation_columns(&field.arguments, &variables, &sql_vars)?;
@@ -1970,10 +2052,7 @@ pub fn gql2sql<'a>(
                                     Statement::Insert {
                                         or: None,
                                         into: true,
-                                        table_name: ObjectName(vec![Ident {
-                                            value: name.to_string(),
-                                            quote_style: Some(QUOTE_CHAR),
-                                        }]),
+                                        table_name,
                                         columns,
                                         overwrite: false,
                                         source: Box::new(Query {
@@ -2026,10 +2105,7 @@ pub fn gql2sql<'a>(
                                     Statement::Update {
                                         table: TableWithJoins {
                                             relation: TableFactor::Table {
-                                                name: ObjectName(vec![Ident {
-                                                    value: name.to_string(),
-                                                    quote_style: Some(QUOTE_CHAR),
-                                                }]),
+                                                name: table_name,
                                                 alias: None,
                                                 args: None,
                                                 with_hints: vec![],
@@ -2068,10 +2144,7 @@ pub fn gql2sql<'a>(
                                     key,
                                     Statement::Delete {
                                         table_name: TableFactor::Table {
-                                            name: ObjectName(vec![Ident {
-                                                value: name.to_string(),
-                                                quote_style: Some(QUOTE_CHAR),
-                                            }]),
+                                            name: table_name,
                                             alias: None,
                                             args: None,
                                             with_hints: vec![],
@@ -2109,7 +2182,7 @@ mod tests {
     use sqlparser::parser::Parser;
 
     #[test]
-    fn query() -> Result<(), anyhow::Error> {
+    fn simple() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"query App {
                 app(filter: { field: "id", operator: "eq", value: "345810043118026832" }, order: { name: ASC }) @meta(table: "App") {
@@ -2147,6 +2220,7 @@ mod tests {
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql).unwrap();
         let (statement, _params) = gql2sql(gqlast, &None, Some("App".to_owned()))?;
+        assert_eq!(statement.to_string(), sql);
         assert_eq!(vec![statement], sqlast);
         Ok(())
     }
@@ -2155,10 +2229,10 @@ mod tests {
     fn mutation_insert() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"mutation insertVillains($data: [Villain_insert_input!]!) {
-                insert(data: $data) @meta(table: "Villain", insert: true) { id name }
+                insert(data: $data) @meta(table: "Villain", insert: true, schema: "auth") { id name }
             }"#,
         )?;
-        let sql = r#"WITH "result" as (INSERT INTO "Villain" ("name") VALUES ($1), ($2), ($3) RETURNING "id", "name") SELECT json_build_object('data', json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
+        let sql = r#"WITH "result" as (INSERT INTO "auth"."Villain" ("name") VALUES ($1), ($2), ($3) RETURNING "id", "name") SELECT json_build_object('data', json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(
@@ -2188,7 +2262,7 @@ mod tests {
                     increment: {
                         number_of_movies: 1
                     }
-                ) @meta(table: "Hero", update: true) @updatedAt {
+                ) @meta(table: "Hero", update: true, schema: "auth") @updatedAt {
                     id
                     name
                     secret_identity
@@ -2196,7 +2270,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let sql = r#"WITH "result" AS (UPDATE "Hero" SET "updated_at" = now(), "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('data', json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
+        let sql = r#"WITH "result" AS (UPDATE "auth"."Hero" SET "updated_at" = now(), "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('data', json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
         // let dialect = PostgreSqlDialect {};
         // let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(gqlast, &None, None)?;
