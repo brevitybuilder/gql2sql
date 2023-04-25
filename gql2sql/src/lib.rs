@@ -840,9 +840,10 @@ fn get_projection<'a>(
                         sql_vars,
                     )?;
                     joins.push(join);
-                    let table_name = schema_name.map_or_else(|| relation.to_string(), |schema_name| {
-                        schema_name.to_string() + "." + &relation
-                    });
+                    let table_name = schema_name.map_or_else(
+                        || relation.to_string(),
+                        |schema_name| schema_name + "." + &relation,
+                    );
                     merges.push(Merge {
                         expr: Expr::Function(Function {
                             name: ObjectName(vec![Ident {
