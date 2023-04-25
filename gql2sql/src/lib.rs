@@ -1674,108 +1674,98 @@ pub fn wrap_mutation(key: &str, value: Statement) -> Statement {
             distinct: false,
             top: None,
             into: None,
-            projection: vec![SelectItem::UnnamedExpr(Expr::Function(Function {
-                name: ObjectName(vec![Ident {
-                    value: JSON_BUILD_OBJECT.to_string(),
-                    quote_style: None,
-                }]),
-                args: vec![
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                        Value::SingleQuotedString(DATA_LABEL.to_string()),
-                    ))),
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
-                        name: ObjectName(vec![Ident {
-                            value: JSON_BUILD_OBJECT.to_string(),
-                            quote_style: None,
-                        }]),
-                        args: vec![
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                                Value::SingleQuotedString(key.to_string()),
-                            ))),
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(
-                                Query {
-                                    with: None,
-                                    body: Box::new(SetExpr::Select(Box::new(Select {
-                                        distinct: false,
-                                        top: None,
-                                        projection: vec![SelectItem::UnnamedExpr(Expr::Function(
-                                            Function {
-                                                over: None,
-                                                distinct: false,
-                                                special: false,
-                                                name: ObjectName(vec![Ident {
-                                                    value: "coalesce".to_string(),
-                                                    quote_style: None,
-                                                }]),
-                                                args: vec![
-                                                    FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                                        Expr::Function(Function {
-                                                            name: ObjectName(vec![Ident {
-                                                                value: JSON_AGG.to_string(),
-                                                                quote_style: None,
-                                                            }]),
-                                                            args: vec![FunctionArg::Unnamed(
-                                                                FunctionArgExpr::Expr(
-                                                                    Expr::Identifier(Ident {
-                                                                        value: "result".to_string(),
-                                                                        quote_style: Some(
-                                                                            QUOTE_CHAR,
-                                                                        ),
-                                                                    }),
-                                                                ),
-                                                            )],
-                                                            over: None,
-                                                            distinct: false,
-                                                            special: false,
-                                                        }),
+            projection: vec![SelectItem::ExprWithAlias {
+                expr: Expr::Function(Function {
+                    name: ObjectName(vec![Ident {
+                        value: JSON_BUILD_OBJECT.to_string(),
+                        quote_style: None,
+                    }]),
+                    args: vec![
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                            Value::SingleQuotedString(key.to_string()),
+                        ))),
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(
+                            Query {
+                                with: None,
+                                body: Box::new(SetExpr::Select(Box::new(Select {
+                                    distinct: false,
+                                    top: None,
+                                    projection: vec![SelectItem::UnnamedExpr(Expr::Function(
+                                        Function {
+                                            over: None,
+                                            distinct: false,
+                                            special: false,
+                                            name: ObjectName(vec![Ident {
+                                                value: "coalesce".to_string(),
+                                                quote_style: None,
+                                            }]),
+                                            args: vec![
+                                                FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                                    Expr::Function(Function {
+                                                        name: ObjectName(vec![Ident {
+                                                            value: JSON_AGG.to_string(),
+                                                            quote_style: None,
+                                                        }]),
+                                                        args: vec![FunctionArg::Unnamed(
+                                                            FunctionArgExpr::Expr(
+                                                                Expr::Identifier(Ident {
+                                                                    value: "result".to_string(),
+                                                                    quote_style: Some(QUOTE_CHAR),
+                                                                }),
+                                                            ),
+                                                        )],
+                                                        over: None,
+                                                        distinct: false,
+                                                        special: false,
+                                                    }),
+                                                )),
+                                                FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                                    Expr::Value(Value::SingleQuotedString(
+                                                        "[]".to_string(),
                                                     )),
-                                                    FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                                        Expr::Value(Value::SingleQuotedString(
-                                                            "[]".to_string(),
-                                                        )),
-                                                    )),
-                                                ],
-                                            },
-                                        ))],
-                                        into: None,
-                                        from: vec![TableWithJoins {
-                                            relation: TableFactor::Table {
-                                                name: ObjectName(vec![Ident {
-                                                    value: "result".to_string(),
-                                                    quote_style: Some(QUOTE_CHAR),
-                                                }]),
-                                                alias: None,
-                                                args: None,
-                                                with_hints: vec![],
-                                            },
-                                            joins: vec![],
-                                        }],
-                                        lateral_views: Vec::new(),
-                                        selection: None,
-                                        group_by: Vec::new(),
-                                        cluster_by: Vec::new(),
-                                        distribute_by: Vec::new(),
-                                        sort_by: Vec::new(),
-                                        having: None,
-                                        qualify: None,
-                                    }))),
-                                    order_by: vec![],
-                                    limit: None,
-                                    offset: None,
-                                    fetch: None,
-                                    locks: vec![],
-                                },
-                            )))),
-                        ],
-                        over: None,
-                        distinct: false,
-                        special: false,
-                    }))),
-                ],
-                over: None,
-                distinct: false,
-                special: false,
-            }))],
+                                                )),
+                                            ],
+                                        },
+                                    ))],
+                                    into: None,
+                                    from: vec![TableWithJoins {
+                                        relation: TableFactor::Table {
+                                            name: ObjectName(vec![Ident {
+                                                value: "result".to_string(),
+                                                quote_style: Some(QUOTE_CHAR),
+                                            }]),
+                                            alias: None,
+                                            args: None,
+                                            with_hints: vec![],
+                                        },
+                                        joins: vec![],
+                                    }],
+                                    lateral_views: Vec::new(),
+                                    selection: None,
+                                    group_by: Vec::new(),
+                                    cluster_by: Vec::new(),
+                                    distribute_by: Vec::new(),
+                                    sort_by: Vec::new(),
+                                    having: None,
+                                    qualify: None,
+                                }))),
+                                order_by: vec![],
+                                limit: None,
+                                offset: None,
+                                fetch: None,
+                                locks: vec![],
+                            },
+                        )))),
+                    ],
+                    over: None,
+                    distinct: false,
+                    special: false,
+                }),
+                alias: Ident {
+                    value: DATA_LABEL.to_string(),
+                    quote_style: Some(QUOTE_CHAR),
+                },
+            }],
             from: vec![],
             lateral_views: Vec::new(),
             selection: None,
@@ -2648,6 +2638,39 @@ mod tests {
         // let sql = r#""#;
         let (_statement, _params) = gql2sql(gqlast, &None, None)?;
         // assert_eq!(statement.to_string(), sql);
+        Ok(())
+    }
+
+    #[test]
+    fn query_wrap_arg() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"
+                mutation CreateVerificationToken($data: [VerificationToken!]!) {
+                    insert(data: $data)
+                        @meta(table: "verification_tokens", insert: true, schema: "auth") {
+                        identifier
+                        token
+                        expires
+                    }
+                }
+            "#,
+        )?;
+        let sql = r#"WITH "result" AS (INSERT INTO "auth"."verification_tokens" ("expires", "identifier", "token") VALUES ($1, $2, $3) RETURNING "identifier", "token", "expires") SELECT json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data""#;
+        let dialect = PostgreSqlDialect {};
+        let sqlast = Parser::parse_sql(&dialect, sql)?;
+        let (statement, _params) = gql2sql(
+            gqlast,
+            &Some(json!({
+            "data": [{
+                "identifier": "nick@brevity.io",
+                "token": "da978cc2c1e0e7b61e1be31b2e3979af576e494d68bd6f5dc156084d9924ee12",
+                "expires": "2023-04-26T21:38:26"
+                }]
+            })),
+            None,
+        )?;
+        assert_eq!(vec![statement.clone()], sqlast);
+        assert_eq!(statement.to_string(), sql);
         Ok(())
     }
 
