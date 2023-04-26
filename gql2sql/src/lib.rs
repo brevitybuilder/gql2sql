@@ -516,14 +516,10 @@ fn get_join<'a>(
         },
     );
 
-    let relation = schema_name.map_or_else(
-        || relation.clone(),
-        |schema_name| format!("{schema_name}.{relation}"),
-    );
     let sub_path = path.map_or_else(|| relation.to_string(), |v| format!("{v}.{relation}"));
     let join_filter = zip(pks, fks)
-        .map(|(pk, fk)| Expr::BinaryOp {
-            left: Box::new(Expr::CompoundIdentifier(vec![
+        .map(|(pk, fk)| {
+            let mut identifier = vec![
                 Ident {
                     value: relation.to_string(),
                     quote_style: Some(QUOTE_CHAR),
@@ -532,18 +528,30 @@ fn get_join<'a>(
                     value: fk,
                     quote_style: Some(QUOTE_CHAR),
                 },
-            ])),
-            op: BinaryOperator::Eq,
-            right: Box::new(Expr::CompoundIdentifier(vec![
-                Ident {
-                    value: path.map_or(BASE.to_string(), std::string::ToString::to_string),
-                    quote_style: Some(QUOTE_CHAR),
-                },
-                Ident {
-                    value: pk,
-                    quote_style: Some(QUOTE_CHAR),
-                },
-            ])),
+            ];
+            if let Some(schema_name) = schema_name.as_ref() {
+                identifier.insert(
+                    0,
+                    Ident {
+                        value: schema_name.clone(),
+                        quote_style: Some(QUOTE_CHAR),
+                    },
+                );
+            }
+            Expr::BinaryOp {
+                left: Box::new(Expr::CompoundIdentifier(identifier)),
+                op: BinaryOperator::Eq,
+                right: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident {
+                        value: path.map_or(BASE.to_string(), std::string::ToString::to_string),
+                        quote_style: Some(QUOTE_CHAR),
+                    },
+                    Ident {
+                        value: pk,
+                        quote_style: Some(QUOTE_CHAR),
+                    },
+                ])),
+            }
         })
         .reduce(|acc, expr| Expr::BinaryOp {
             left: Box::new(acc),
@@ -2223,7 +2231,7 @@ mod tests {
                 insert(data: $data) @meta(table: "Villain", insert: true, schema: "auth") { id name }
             }"#,
         )?;
-        let sql = r#"WITH "result" as (INSERT INTO "auth"."Villain" ("name") VALUES ($1), ($2), ($3) RETURNING "id", "name") SELECT json_build_object('data', json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
+        let sql = r#"WITH "result" as (INSERT INTO "auth"."Villain" ("name") VALUES ($1), ($2), ($3) RETURNING "id", "name") SELECT json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data""#;
         let dialect = PostgreSqlDialect {};
         let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(
@@ -2261,7 +2269,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let sql = r#"WITH "result" AS (UPDATE "auth"."Hero" SET "updated_at" = now(), "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('data', json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")))"#;
+        let sql = r#"WITH "result" AS (UPDATE "auth"."Hero" SET "updated_at" = now(), "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data""#;
         // let dialect = PostgreSqlDialect {};
         // let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(gqlast, &None, None)?;
@@ -2638,6 +2646,54 @@ mod tests {
         // let sql = r#""#;
         let (_statement, _params) = gql2sql(gqlast, &None, None)?;
         // assert_eq!(statement.to_string(), sql);
+        Ok(())
+    }
+
+    #[test]
+    fn query_schema_arg() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"
+              query GetSession($sessionToken: String!) {
+    session(
+        filter: {
+            field: "sessionToken"
+            operator: "eq"
+            value: $sessionToken
+        }
+    ) @meta(table: "sessions", single: true, schema: "auth") {
+        sessionToken
+        userId
+        expires
+        user
+            @relation(
+                table: "users"
+                field: ["id"]
+                references: ["userId"]
+                single: true
+                schema: "auth"
+            ) {
+            id
+            name
+            email
+            emailVerified
+            image
+        }
+    }
+}
+            "#,
+        )?;
+        let sql = r#"SELECT json_build_object('session', (SELECT to_json((SELECT "root" FROM (SELECT "base"."sessionToken", "base"."userId", "base"."expires", "user") AS "root")) AS "root" FROM (SELECT * FROM "auth"."sessions" WHERE "sessionToken" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.users"."id", "base.users"."name", "base.users"."email", "base.users"."emailVerified", "base.users"."image") AS "root")) AS "user" FROM (SELECT * FROM "auth"."users" WHERE "auth"."users"."id" = "base"."userId" LIMIT 1) AS "base.users") AS "root.users" ON ('true'))) AS "data""#;
+        let dialect = PostgreSqlDialect {};
+        let _sqlast = Parser::parse_sql(&dialect, sql)?;
+        let (statement, _params) = gql2sql(
+            gqlast,
+            &Some(json!({
+              "sessionToken": "fake"
+            })),
+            None,
+        )?;
+        // assert_eq!(vec![statement.clone()], sqlast);
+        assert_eq!(statement.to_string(), sql);
         Ok(())
     }
 
