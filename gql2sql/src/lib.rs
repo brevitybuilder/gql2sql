@@ -751,10 +751,26 @@ fn get_projection<'a>(
                         sql_vars,
                     )?;
                     joins.push(join);
-                    projection.push(SelectItem::UnnamedExpr(Expr::Identifier(Ident {
-                        value: field.name.node.to_string(),
-                        quote_style: Some(QUOTE_CHAR),
-                    })));
+                    match &field.alias {
+                        Some(alias) => {
+                            projection.push(SelectItem::ExprWithAlias {
+                                expr: Expr::Identifier(Ident {
+                                    value: field.name.node.to_string(),
+                                    quote_style: Some(QUOTE_CHAR),
+                                }),
+                                alias: Ident {
+                                    value: alias.node.to_string(),
+                                    quote_style: Some(QUOTE_CHAR),
+                                },
+                            });
+                        }
+                        None => {
+                            projection.push(SelectItem::UnnamedExpr(Expr::Identifier(Ident {
+                                value: field.name.node.to_string(),
+                                quote_style: Some(QUOTE_CHAR),
+                            })));
+                        }
+                    }
                 } else {
                     if let Some(value) = get_static(&field.name.node, &field.directives, sql_vars)?
                     {
@@ -2664,7 +2680,7 @@ mod tests {
         sessionToken
         userId
         expires
-        user
+        user2: user
             @relation(
                 table: "users"
                 field: ["id"]
@@ -2682,9 +2698,9 @@ mod tests {
 }
             "#,
         )?;
-        let sql = r#"SELECT json_build_object('session', (SELECT to_json((SELECT "root" FROM (SELECT "base"."sessionToken", "base"."userId", "base"."expires", "user") AS "root")) AS "root" FROM (SELECT * FROM "auth"."sessions" WHERE "sessionToken" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.users"."id", "base.users"."name", "base.users"."email", "base.users"."emailVerified", "base.users"."image") AS "root")) AS "user" FROM (SELECT * FROM "auth"."users" WHERE "auth"."users"."id" = "base"."userId" LIMIT 1) AS "base.users") AS "root.users" ON ('true'))) AS "data""#;
+        let sql = r#"SELECT json_build_object('session', (SELECT to_json((SELECT "root" FROM (SELECT "base"."sessionToken", "base"."userId", "base"."expires", "user" AS "user2") AS "root")) AS "root" FROM (SELECT * FROM "auth"."sessions" WHERE "sessionToken" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.users"."id", "base.users"."name", "base.users"."email", "base.users"."emailVerified", "base.users"."image") AS "root")) AS "user" FROM (SELECT * FROM "auth"."users" WHERE "auth"."users"."id" = "base"."userId" LIMIT 1) AS "base.users") AS "root.users" ON ('true'))) AS "data""#;
         let dialect = PostgreSqlDialect {};
-        let _sqlast = Parser::parse_sql(&dialect, sql)?;
+        let sqlast = Parser::parse_sql(&dialect, sql)?;
         let (statement, _params) = gql2sql(
             gqlast,
             &Some(json!({
@@ -2692,7 +2708,7 @@ mod tests {
             })),
             None,
         )?;
-        // assert_eq!(vec![statement.clone()], sqlast);
+        assert_eq!(vec![statement.clone()], sqlast);
         assert_eq!(statement.to_string(), sql);
         Ok(())
     }
