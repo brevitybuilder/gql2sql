@@ -58,9 +58,15 @@ impl FromRow<'_, PgRow> for QueryResponse {
 }
 
 #[derive(Serialize)]
+struct Extension {
+    tags: Option<Vec<String>>,
+    timing: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Serialize)]
 struct APIResponse {
     data: Box<sqlx::types::JsonRawValue>,
-    meta: Option<BTreeMap<String, String>>,
+    extensions: Option<Extension>,
 }
 
 async fn graphql(
@@ -78,7 +84,7 @@ async fn graphql(
     let gqlast = async_graphql_parser::parse_query(&payload.query).unwrap();
     meta.insert("parse".to_string(), start.elapsed().as_millis().to_string());
     let start = std::time::Instant::now();
-    let (statement, args) =
+    let (statement, args, tags) =
         gql2sql::gql2sql(gqlast, &payload.variables, payload.operation_name).unwrap();
     meta.insert(
         "transform".to_string(),
@@ -124,7 +130,10 @@ async fn graphql(
         )]),
         Json(APIResponse {
             data: value.data,
-            meta: Some(meta),
+            extensions: Some(Extension {
+                tags,
+                timing: Some(meta),
+            }),
         }),
     ))
 }

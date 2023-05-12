@@ -13,9 +13,9 @@ serde = { version = "1.0", features = ["derive"] }
 napi = { version = "2", features = ["serde-json", "error_anyhow", "anyhow"] }
 napi-derive = "2"
 gql2sql = { path = "../gql2sql" }
-async-graphql-parser = "5.0.7"
+async-graphql-parser = "5.0.8"
 serde_json = "1.0.96"
-anyhow = "1.0.70"
+anyhow = "1.0.71"
 
 [build-dependencies]
 napi-build = "2"

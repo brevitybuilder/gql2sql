@@ -13,13 +13,19 @@ use async_graphql_parser::{
 };
 use async_graphql_value::{Name, Value as GqlValue};
 use indexmap::IndexMap;
-use sqlparser::ast::{
-    Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
-    Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
-    SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
-    WildcardAdditionalOptions, With,
+use sqlparser::{
+    ast::{
+        Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr,
+        Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr,
+        Query, Select, SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins,
+        Value, Values, WildcardAdditionalOptions, With,
+    },
 };
-use std::iter::zip;
+use std::{
+    collections::HashSet,
+    fmt::{Debug, Formatter},
+    iter::zip,
+};
 
 type JsonValue = serde_json::Value;
 type AnyResult<T> = anyhow::Result<T>;
@@ -480,21 +486,29 @@ fn get_aggregate_projection(items: &Vec<Positioned<Selection>>) -> AnyResult<Vec
 }
 
 fn get_join<'a>(
-    arguments: &Vec<(Positioned<Name>, Positioned<GqlValue>)>,
-    directives: &Vec<Positioned<Directive>>,
-    selection_items: &Vec<Positioned<Selection>>,
+    arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
+    directives: &'a Vec<Positioned<Directive>>,
+    selection_items: &'a Vec<Positioned<Selection>>,
     path: Option<&'a str>,
     name: &'a str,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a IndexMap<Name, JsonValue>,
+    parent: &'a str,
+    tags: &'a mut IndexMap<String, Vec<Tag>>,
 ) -> AnyResult<Join> {
-    let (selection, distinct, distinct_order, order_by, mut first, after) =
+    let (selection, distinct, distinct_order, order_by, mut first, after, keys) =
         parse_args(arguments, variables, sql_vars)?;
     let (relation, fks, pks, is_single, is_aggregate, schema_name) =
         get_relation(directives, sql_vars)?;
     if is_single {
         first = Some(Expr::Value(Value::Number("1".to_string(), false)));
     }
+    if let Some(keys) = keys {
+        tags.insert(name.to_owned(), keys.into_iter().collect());
+    } else {
+        tags.insert(name.to_owned(), Vec::new());
+    };
+
     let table_name = schema_name.as_ref().map_or_else(
         || {
             ObjectName(vec![Ident {
@@ -517,8 +531,60 @@ fn get_join<'a>(
     );
 
     let sub_path = path.map_or_else(|| relation.to_string(), |v| format!("{v}.{relation}"));
+    let mut additional_select_items = Vec::new();
     let join_filter = zip(pks, fks)
         .map(|(pk, fk)| {
+            additional_select_items.push(SelectItem::UnnamedExpr(Expr::CompoundIdentifier(vec![
+                Ident {
+                    value: sub_path.to_string(),
+                    quote_style: Some(QUOTE_CHAR),
+                },
+                Ident {
+                    value: fk.clone(),
+                    quote_style: Some(QUOTE_CHAR),
+                },
+            ])));
+            let mut new_tags = Vec::new();
+            if let Some(table_tags) = tags.get(parent) {
+                for tag in table_tags {
+                    if tag.key == pk {
+                        new_tags.push(Tag {
+                            key: fk.clone(),
+                            value: tag.value.clone(),
+                        });
+                    } else if tag.key == fk {
+                        new_tags.push(Tag {
+                            key: pk.clone(),
+                            value: tag.value.clone(),
+                        });
+                    } else if is_single {
+                        new_tags.push(Tag {
+                            key: fk.clone(),
+                            value: format!("{{{{{fk}}}}}"),
+                        });
+                    } else {
+                        new_tags.push(Tag {
+                            key: fk.clone(),
+                            value: format!("{{{{{fk}}}}}"),
+                        });
+                    }
+                }
+            } else if is_single {
+                new_tags.push(Tag {
+                    key: fk.clone(),
+                    value: format!("{{{{{fk}}}}}"),
+                });
+            } else {
+                new_tags.push(Tag {
+                    key: fk.clone(),
+                    value: format!("{{{{{fk}}}}}"),
+                });
+            }
+            if let Some(v) = tags.get_mut(name) {
+                v.extend(new_tags);
+            } else {
+                tags.insert(name.to_string(), new_tags);
+            };
             let mut identifier = vec![
                 Ident {
                     value: relation.to_string(),
@@ -631,14 +697,16 @@ fn get_join<'a>(
             Some(&sub_path),
             variables,
             sql_vars,
+            tags,
         )?;
+        additional_select_items.extend(sub_projection);
         Ok(Join {
             relation: TableFactor::Derived {
                 lateral: true,
                 subquery: Box::new(Query {
                     with: None,
                     body: Box::new(get_root_query(
-                        sub_projection,
+                        additional_select_items,
                         vec![TableWithJoins {
                             relation: TableFactor::Derived {
                                 lateral: false,
@@ -726,11 +794,12 @@ fn get_static<'a>(
 }
 
 fn get_projection<'a>(
-    items: &Vec<Positioned<Selection>>,
+    items: &'a Vec<Positioned<Selection>>,
     relation: &'a str,
     path: Option<&'a str>,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a IndexMap<Name, JsonValue>,
+    tags: &mut IndexMap<String, Vec<Tag>>,
 ) -> AnyResult<(Vec<SelectItem>, Vec<Join>, Vec<Merge>)> {
     let mut projection = Vec::new();
     let mut joins = Vec::new();
@@ -749,6 +818,8 @@ fn get_projection<'a>(
                         &field.name.node,
                         variables,
                         sql_vars,
+                        relation,
+                        tags,
                     )?;
                     joins.push(join);
                     match &field.alias {
@@ -862,6 +933,8 @@ fn get_projection<'a>(
                         name,
                         variables,
                         sql_vars,
+                        &relation,
+                        tags,
                     )?;
                     joins.push(join);
                     let table_name = schema_name.map_or_else(
@@ -1289,6 +1362,48 @@ fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValu
     }
 }
 
+fn get_filter_key<'a>(
+    args: &'a IndexMap<Name, GqlValue>,
+    variables: &'a IndexMap<Name, JsonValue>,
+) -> AnyResult<Option<HashSet<Tag>>> {
+    let mut tags = HashSet::new();
+    let operator = args
+        .get("operator")
+        .map(|v| get_string_or_variable(v, variables))
+        .ok_or(anyhow!("operator not found"))??;
+    if operator == "eq" {
+        let field = args
+            .get("field")
+            .map(|v| get_string_or_variable(v, variables))
+            .ok_or(anyhow!("field not found"))??;
+        if let Some(GqlValue::String(value)) = args.get("value") {
+            tags.insert(Tag {
+                key: field,
+                value: value.clone(),
+            });
+        }
+    }
+    if args.contains_key("children") {
+        if let Some(GqlValue::List(children)) = args.get("children") {
+            children
+                .iter()
+                .map(|v| match v {
+                    GqlValue::Object(o) => get_filter_key(o, variables),
+                    _ => Ok(None),
+                })
+                .filter_map(|v| v.ok().flatten())
+                .for_each(|v| {
+                    tags.extend(v);
+                });
+        }
+    }
+    if !tags.is_empty() {
+        Ok(Some(tags))
+    } else {
+        Ok(None)
+    }
+}
+
 fn flatten_variables(
     variables: &Option<JsonValue>,
     definitions: Vec<Positioned<VariableDefinition>>,
@@ -1319,6 +1434,7 @@ fn parse_args<'a>(
     Vec<OrderByExpr>,
     Option<Expr>,
     Option<Offset>,
+    Option<HashSet<Tag>>,
 )> {
     let mut selection = None;
     let mut order_by = vec![];
@@ -1326,6 +1442,7 @@ fn parse_args<'a>(
     let mut distinct_order = None;
     let mut first = None;
     let mut after = None;
+    let mut keys = None;
     for argument in arguments {
         let (p_key, p_value) = argument;
         let key = p_key.node.as_str();
@@ -1340,6 +1457,7 @@ fn parse_args<'a>(
         }
         match (key, value) {
             ("filter" | "where", GqlValue::Object(filter)) => {
+                keys = get_filter_key(&filter, sql_vars)?;
                 selection = get_filter(&filter, sql_vars)?;
             }
             ("distinct", GqlValue::Object(d)) => {
@@ -1415,7 +1533,15 @@ fn parse_args<'a>(
             }
         }
     }
-    Ok((selection, distinct, distinct_order, order_by, first, after))
+    Ok((
+        selection,
+        distinct,
+        distinct_order,
+        order_by,
+        first,
+        after,
+        keys,
+    ))
 }
 
 fn get_mutation_columns<'a>(
@@ -1808,11 +1934,29 @@ pub fn wrap_mutation(key: &str, value: Statement) -> Statement {
     }))
 }
 
+#[derive(PartialEq, Eq, Hash)]
+struct Tag {
+    key: String,
+    value: String,
+}
+
+impl Debug for Tag {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.key, self.value)
+    }
+}
+
+impl ToString for Tag {
+    fn to_string(&self) -> String {
+        format!("{}:{}", self.key, self.value)
+    }
+}
+
 pub fn gql2sql<'a>(
     ast: ExecutableDocument,
     variables: &Option<JsonValue>,
     operation_name: Option<String>,
-) -> AnyResult<(Statement, Option<Vec<JsonValue>>)> {
+) -> AnyResult<(Statement, Option<Vec<JsonValue>>, Option<Vec<String>>)> {
     let mut statements = Vec::new();
     let operation = match ast.operations {
         DocumentOperations::Single(operation) => operation.node,
@@ -1835,6 +1979,7 @@ pub fn gql2sql<'a>(
     };
 
     let (variables, sql_vars) = flatten_variables(variables, operation.variable_definitions);
+    let mut tags: IndexMap<String, Vec<Tag>> = IndexMap::new();
 
     match operation.ty {
         OperationType::Query => {
@@ -1844,11 +1989,16 @@ pub fn gql2sql<'a>(
                         let field = &p_field.node;
                         let (name, key, is_aggregate, is_single, schema_name) =
                             parse_query_meta(field)?;
-                        let (selection, distinct, distinct_order, order_by, mut first, after) =
+                        let (selection, distinct, distinct_order, order_by, mut first, after, keys) =
                             parse_args(&field.arguments, &variables, &sql_vars)?;
                         if is_single {
                             first = Some(Expr::Value(Value::Number("1".to_string(), false)));
                         }
+                        if let Some(keys) = keys {
+                            tags.insert(name.to_string(), keys.into_iter().collect());
+                        } else {
+                            tags.insert(name.to_string(), Vec::new());
+                        };
                         let table_name = schema_name.map_or_else(
                             || {
                                 ObjectName(vec![Ident {
@@ -1917,6 +2067,7 @@ pub fn gql2sql<'a>(
                                 Some(BASE),
                                 &variables,
                                 &sql_vars,
+                                &mut tags,
                             )?;
                             let root_query = get_root_query(
                                 projection,
@@ -2016,7 +2167,22 @@ pub fn gql2sql<'a>(
             } else {
                 Some(sql_vars.into_values().collect())
             };
-            return Ok((statement, params));
+            if tags.is_empty() {
+                return Ok((statement, params, None));
+            }
+            let sub_tags = tags
+                .into_iter()
+                .flat_map(|(key, values)| {
+                    if values.is_empty() {
+                        return vec![format!("table:{key}")];
+                    }
+                    values
+                        .into_iter()
+                        .map(|v| format!("table:{key}:{}", v.to_string()))
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            return Ok((statement, params, Some(sub_tags)));
         }
         OperationType::Mutation => {
             for selection in operation.selection_set.node.items {
@@ -2055,6 +2221,7 @@ pub fn gql2sql<'a>(
                                 None,
                                 &variables,
                                 &sql_vars,
+                                &mut tags,
                             )?;
                             let params = if sql_vars.is_empty() {
                                 None
@@ -2090,6 +2257,7 @@ pub fn gql2sql<'a>(
                                     },
                                 ),
                                 params,
+                                None,
                             ));
                         } else if is_update {
                             let has_updated_at_directive = field
@@ -2102,6 +2270,7 @@ pub fn gql2sql<'a>(
                                 None,
                                 &variables,
                                 &sql_vars,
+                                &mut tags,
                             )?;
                             let (selection, assignments) = get_mutation_assignments(
                                 &field.arguments,
@@ -2134,6 +2303,7 @@ pub fn gql2sql<'a>(
                                     },
                                 ),
                                 params,
+                                None,
                             ));
                         } else if is_delete {
                             let (projection, _, _) = get_projection(
@@ -2142,6 +2312,7 @@ pub fn gql2sql<'a>(
                                 None,
                                 &variables,
                                 &sql_vars,
+                                &mut tags,
                             )?;
                             let (selection, _) = get_mutation_assignments(
                                 &field.arguments,
@@ -2170,6 +2341,7 @@ pub fn gql2sql<'a>(
                                     },
                                 ),
                                 params,
+                                None,
                             ));
                         }
                     }
@@ -2191,10 +2363,11 @@ pub fn gql2sql<'a>(
 mod tests {
     use super::*;
     use async_graphql_parser::parse_query;
-    use pretty_assertions::assert_eq;
+    
     use serde_json::json;
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
+    use insta::assert_snapshot;
 
     #[test]
     fn simple() -> Result<(), anyhow::Error> {
@@ -2231,12 +2404,8 @@ mod tests {
             }
         "#,
         )?;
-        let sql = r#"SELECT json_build_object('app', (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base"."id", "components") AS "root"))), '[]') AS "root" FROM (SELECT * FROM "App" WHERE "id" = '345810043118026832' ORDER BY "name" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component"."id", "pageMeta", "elements") AS "root"))), '[]') AS "components" FROM (SELECT * FROM "Component" WHERE "Component"."appId" = "base"."id") AS "base.Component" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.Component.PageMeta"."id", "base.Component.PageMeta"."path") AS "root")) AS "pageMeta" FROM (SELECT * FROM "PageMeta" WHERE "PageMeta"."componentId" = "base.Component"."id" LIMIT 1) AS "base.Component.PageMeta") AS "root.PageMeta" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component.Element"."id", "base.Component.Element"."name") AS "root"))), '[]') AS "elements" FROM (SELECT * FROM "Element" WHERE "Element"."componentParentId" = "base.Component"."id" ORDER BY "order" ASC) AS "base.Component.Element") AS "root.Element" ON ('true')) AS "root.Component" ON ('true')), 'Component_aggregate', (SELECT json_build_object('count', COUNT(*), 'min', json_build_object('createdAt', MIN("createdAt"))) AS "root" FROM (SELECT * FROM "Component" WHERE "appId" = '345810043118026832') AS "base")) AS "data""#;
-        let dialect = PostgreSqlDialect {};
-        let sqlast = Parser::parse_sql(&dialect, sql).unwrap();
-        let (statement, _params) = gql2sql(gqlast, &None, Some("App".to_owned()))?;
-        assert_eq!(statement.to_string(), sql);
-        assert_eq!(vec![statement], sqlast);
+        let (statement, _params, _tags) = gql2sql(gqlast, &None, Some("App".to_owned()))?;
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -2247,10 +2416,7 @@ mod tests {
                 insert(data: $data) @meta(table: "Villain", insert: true, schema: "auth") { id name }
             }"#,
         )?;
-        let sql = r#"WITH "result" as (INSERT INTO "auth"."Villain" ("name") VALUES ($1), ($2), ($3) RETURNING "id", "name") SELECT json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data""#;
-        let dialect = PostgreSqlDialect {};
-        let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(
+        let (statement, _params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
                 "data": [
@@ -2261,7 +2427,7 @@ mod tests {
             })),
             None,
         )?;
-        assert_eq!(vec![statement], sqlast);
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -2285,11 +2451,8 @@ mod tests {
                 }
             }"#,
         )?;
-        let sql = r#"WITH "result" AS (UPDATE "auth"."Hero" SET "updated_at" = now(), "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data""#;
-        // let dialect = PostgreSqlDialect {};
-        // let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(gqlast, &None, None)?;
-        assert_eq!(statement.to_string(), sql);
+        let (statement, _params, _tags) = gql2sql(gqlast, &None, None)?;
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -2499,8 +2662,7 @@ mod tests {
     }
 "#,
         )?;
-        let sql = r#"SELECT json_build_object('app', (SELECT to_json((SELECT "root" FROM (SELECT "base"."orgId", "base"."id", "base"."branch", "base"."name", "base"."description", "base"."theme", "base"."favicon", "base"."customCSS", "base"."analytics", "base"."customDomain", "components", "connections", "layouts", "plugins", "schemas", "styles", "workflows") AS "root")) AS "root" FROM (SELECT * FROM "App" WHERE "orgId" = $1 AND "id" = $2 AND "branch" = $3 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(CAST(to_json((SELECT "root" FROM (SELECT "base.Component"."id", "base.Component"."branch") AS "root")) AS jsonb) || CASE WHEN "root.PageMeta"."PageMeta" IS NOT NULL THEN to_jsonb("PageMeta") WHEN "root.ComponentMeta"."ComponentMeta" IS NOT NULL THEN to_jsonb("ComponentMeta") ELSE jsonb_build_object() END), '[]') AS "components" FROM (SELECT * FROM "Component" WHERE "Component"."appId" = "base"."id" AND "Component"."branch" = "base"."branch") AS "base.Component" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.Component.PageMeta"."title", "base.Component.PageMeta"."description", "base.Component.PageMeta"."path", "base.Component.PageMeta"."socialImage", "base.Component.PageMeta"."urlParams", "base.Component.PageMeta"."loader", "base.Component.PageMeta"."protection", "base.Component.PageMeta"."maxAge", "base.Component.PageMeta"."sMaxAge", "base.Component.PageMeta"."staleWhileRevalidate") AS "root")) AS "PageMeta" FROM (SELECT * FROM "PageMeta" WHERE "PageMeta"."componentId" = "base.Component"."id" AND "PageMeta"."branch" = "base.Component"."branch" LIMIT 1) AS "base.Component.PageMeta") AS "root.PageMeta" ON ('true') LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.Component.ComponentMeta"."title", "sources", "events") AS "root")) AS "ComponentMeta" FROM (SELECT * FROM "ComponentMeta" WHERE "ComponentMeta"."componentId" = "base.Component"."id" AND "ComponentMeta"."branch" = "base.Component"."branch" LIMIT 1) AS "base.Component.ComponentMeta" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component.ComponentMeta.Source"."id", "base.Component.ComponentMeta.Source"."branch", "base.Component.ComponentMeta.Source"."name", "base.Component.ComponentMeta.Source"."provider", "base.Component.ComponentMeta.Source"."description", "base.Component.ComponentMeta.Source"."template", "base.Component.ComponentMeta.Source"."instanceTemplate", "base.Component.ComponentMeta.Source"."outputType", "base.Component.ComponentMeta.Source"."source", "base.Component.ComponentMeta.Source"."sourceProp", "base.Component.ComponentMeta.Source"."componentId", "base.Component.ComponentMeta.Source"."utilityId", "component", "utility") AS "root"))), '[]') AS "sources" FROM (SELECT * FROM "Source" WHERE "Source"."componentId" = "base.Component.ComponentMeta"."id" AND "Source"."branch" = "base.Component.ComponentMeta"."branch") AS "base.Component.ComponentMeta.Source" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.Component.ComponentMeta.Source.Element"."id", "base.Component.ComponentMeta.Source.Element"."branch", "base.Component.ComponentMeta.Source.Element"."name", "base.Component.ComponentMeta.Source.Element"."kind", "base.Component.ComponentMeta.Source.Element"."source", "base.Component.ComponentMeta.Source.Element"."styles", "base.Component.ComponentMeta.Source.Element"."props", "base.Component.ComponentMeta.Source.Element"."order", "base.Component.ComponentMeta.Source.Element"."conditions") AS "root")) AS "component" FROM (SELECT * FROM "Element" WHERE "Element"."id" = "base.Component.ComponentMeta.Source"."componentId" AND "Element"."branch" = "base.Component.ComponentMeta.Source"."branch" ORDER BY "order" ASC LIMIT 1) AS "base.Component.ComponentMeta.Source.Element") AS "root.Element" ON ('true') LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.Component.ComponentMeta.Source.Utility"."id", "base.Component.ComponentMeta.Source.Utility"."branch", "base.Component.ComponentMeta.Source.Utility"."name", "base.Component.ComponentMeta.Source.Utility"."kind", "base.Component.ComponentMeta.Source.Utility"."kindId", "base.Component.ComponentMeta.Source.Utility"."data") AS "root")) AS "utility" FROM (SELECT * FROM "Utility" WHERE "Utility"."id" = "base.Component.ComponentMeta.Source"."componentId" AND "Utility"."branch" = "base.Component.ComponentMeta.Source"."branch" LIMIT 1) AS "base.Component.ComponentMeta.Source.Utility") AS "root.Utility" ON ('true')) AS "root.Source" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Component.ComponentMeta.Event"."id", "base.Component.ComponentMeta.Event"."branch", "base.Component.ComponentMeta.Event"."name", "base.Component.ComponentMeta.Event"."label", "base.Component.ComponentMeta.Event"."help", "base.Component.ComponentMeta.Event"."type") AS "root"))), '[]') AS "events" FROM (SELECT * FROM "Event" WHERE "Event"."componentMetaId" = "base.Component.ComponentMeta"."id" AND "Event"."branch" = "base.Component.ComponentMeta"."branch") AS "base.Component.ComponentMeta.Event") AS "root.Event" ON ('true')) AS "root.ComponentMeta" ON ('true')) AS "root.Component" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Connection"."id", "base.Connection"."branch", "base.Connection"."name", "base.Connection"."kind", "base.Connection"."prodUrl", "mutationSchema", "endpoints", "headers") AS "root"))), '[]') AS "connections" FROM (SELECT * FROM "Connection" WHERE "Connection"."appId" = "base"."id" AND "Connection"."branch" = "base"."branch") AS "base.Connection" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.Connection.Schema"."id", "base.Connection.Schema"."branch", "base.Connection.Schema"."schema") AS "root")) AS "mutationSchema" FROM (SELECT * FROM "Schema" WHERE "Schema"."mutationConnectionId" = "base.Connection"."id" AND "Schema"."branch" = "base.Connection"."branch" LIMIT 1) AS "base.Connection.Schema") AS "root.Schema" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Connection.Endpoint"."id", "base.Connection.Endpoint"."branch", "base.Connection.Endpoint"."name", "base.Connection.Endpoint"."method", "base.Connection.Endpoint"."path", "base.Connection.Endpoint"."responseSchemaId", "headers", "search") AS "root"))), '[]') AS "endpoints" FROM (SELECT * FROM "Endpoint" WHERE "Endpoint"."connectionId" = "base.Connection"."id" AND "Endpoint"."branch" = "base.Connection"."branch") AS "base.Connection.Endpoint" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Connection.Endpoint.Header"."id", "base.Connection.Endpoint.Header"."branch", "base.Connection.Endpoint.Header"."key", "base.Connection.Endpoint.Header"."value", "base.Connection.Endpoint.Header"."dynamic") AS "root"))), '[]') AS "headers" FROM (SELECT * FROM "Header" WHERE "Header"."parentEndpointId" = "base.Connection.Endpoint"."id" AND "Header"."branch" = "base.Connection.Endpoint"."branch") AS "base.Connection.Endpoint.Header") AS "root.Header" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Connection.Endpoint.Search"."id", "base.Connection.Endpoint.Search"."branch", "base.Connection.Endpoint.Search"."key", "base.Connection.Endpoint.Search"."value", "base.Connection.Endpoint.Search"."dynamic") AS "root"))), '[]') AS "search" FROM (SELECT * FROM "Search" WHERE "Search"."endpointId" = "base.Connection.Endpoint"."id" AND "Search"."branch" = "base.Connection.Endpoint"."branch") AS "base.Connection.Endpoint.Search") AS "root.Search" ON ('true')) AS "root.Endpoint" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Connection.Header"."id", "base.Connection.Header"."branch", "base.Connection.Header"."key", "base.Connection.Header"."value", "base.Connection.Header"."dynamic") AS "root"))), '[]') AS "headers" FROM (SELECT * FROM "Header" WHERE "Header"."parentConnectionId" = "base.Connection"."id" AND "Header"."branch" = "base.Connection"."branch") AS "base.Connection.Header") AS "root.Header" ON ('true')) AS "root.Connection" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Layout"."id", "base.Layout"."branch", "base.Layout"."name", "base.Layout"."source", "base.Layout"."kind", "base.Layout"."styles", "base.Layout"."props") AS "root"))), '[]') AS "layouts" FROM (SELECT * FROM "Layout" WHERE "Layout"."appId" = "base"."id" AND "Layout"."branch" = "base"."branch") AS "base.Layout") AS "root.Layout" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Plugin"."instanceId", "base.Plugin"."kind") AS "root"))), '[]') AS "plugins" FROM (SELECT * FROM "Plugin" WHERE "Plugin"."appId" = "base"."id" AND "Plugin"."branch" = "base"."branch") AS "base.Plugin") AS "root.Plugin" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Schema"."id", "base.Schema"."branch", "base.Schema"."schema") AS "root"))), '[]') AS "schemas" FROM (SELECT * FROM "Schema" WHERE "Schema"."appId" = "base"."id" AND "Schema"."branch" = "base"."branch") AS "base.Schema") AS "root.Schema" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Style"."id", "base.Style"."branch", "base.Style"."name", "base.Style"."kind", "base.Style"."styles", "base.Style"."isDefault") AS "root"))), '[]') AS "styles" FROM (SELECT * FROM "Style" WHERE "Style"."appId" = "base"."id" AND "Style"."branch" = "base"."branch") AS "base.Style") AS "root.Style" ON ('true') LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Workflow"."id", "base.Workflow"."branch", "base.Workflow"."name", "base.Workflow"."args", "steps") AS "root"))), '[]') AS "workflows" FROM (SELECT * FROM "Workflow" WHERE "Workflow"."appId" = "base"."id" AND "Workflow"."branch" = "base"."branch") AS "base.Workflow" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Workflow.Step"."id", "base.Workflow.Step"."branch", "base.Workflow.Step"."parentId", "base.Workflow.Step"."kind", "base.Workflow.Step"."kindId", "base.Workflow.Step"."data", "base.Workflow.Step"."order") AS "root"))), '[]') AS "steps" FROM (SELECT * FROM "Step" WHERE "Step"."workflowId" = "base.Workflow"."id" AND "Step"."branch" = "base.Workflow"."branch" ORDER BY "order" ASC) AS "base.Workflow.Step") AS "root.Step" ON ('true')) AS "root.Workflow" ON ('true'))) AS "data""#;
-        let (statement, _params) = gql2sql(
+        let (statement, _params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
                 "orgId": "org",
@@ -2509,7 +2671,7 @@ mod tests {
             })),
             None,
         )?;
-        assert_eq!(statement.to_string(), sql);
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -2541,8 +2703,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let sql = r#"SELECT json_build_object('component', (SELECT CAST(to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch") AS "root")) AS jsonb) || CASE WHEN "root.ComponentMeta"."ComponentMeta" IS NOT NULL THEN to_jsonb("ComponentMeta") ELSE jsonb_build_object() END AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.ComponentMeta"."title") AS "root")) AS "ComponentMeta" FROM (SELECT * FROM "ComponentMeta" WHERE "ComponentMeta"."componentId" = "base"."id" AND ("branch" = $2 OR "branch" = 'main') LIMIT 1) AS "base.ComponentMeta") AS "root.ComponentMeta" ON ('true'))) AS "data""#;
-        let (statement, _params) = gql2sql(
+        let (statement, _params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
                 "componentId": "comp",
@@ -2550,7 +2711,7 @@ mod tests {
             })),
             None,
         )?;
-        assert_eq!(sql, statement.to_string());
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -2565,17 +2726,14 @@ mod tests {
                 }
             }"#,
         )?;
-        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind") AS "root")) AS "root" FROM (SELECT * FROM "Component" WHERE "id" = $1 LIMIT 1) AS "base")) AS "data""#;
-        let dialect = PostgreSqlDialect {};
-        let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(
+        let (statement, _params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
                 "componentId": "fake"
             })),
             None,
         )?;
-        assert_eq!(vec![statement], sqlast);
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -2609,8 +2767,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let sql = r#"SELECT json_build_object('component', (SELECT to_json((SELECT "root" FROM (SELECT "base"."id", "base"."branch", 'page' AS "kind", "stuff") AS "root")) AS "root" FROM (SELECT * FROM (SELECT DISTINCT ON ("id") * FROM "Component" WHERE "id" = $1 AND ("branch" = $2 OR "branch" = 'main') ORDER BY "id" ASC, "branch" = $2 DESC LIMIT 1) AS sorter ORDER BY "orderKey" ASC) AS "base" LEFT JOIN LATERAL (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base.Stuff"."id") AS "root"))), '[]') AS "stuff" FROM (SELECT * FROM "Stuff" WHERE "componentId" = "base"."id") AS "base.Stuff") AS "root.Stuff" ON ('true'))) AS "data""#;
-        let (statement, _params) = gql2sql(
+        let (statement, _params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
                 "componentId": "fake",
@@ -2618,7 +2775,7 @@ mod tests {
             })),
             None,
         )?;
-        assert_eq!(statement.to_string(), sql);
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -2660,7 +2817,7 @@ mod tests {
             }"#,
         )?;
         // let sql = r#""#;
-        let (_statement, _params) = gql2sql(gqlast, &None, None)?;
+        let (_statement, _params, _tags) = gql2sql(gqlast, &None, None)?;
         // assert_eq!(statement.to_string(), sql);
         Ok(())
     }
@@ -2698,18 +2855,14 @@ mod tests {
 }
             "#,
         )?;
-        let sql = r#"SELECT json_build_object('session', (SELECT to_json((SELECT "root" FROM (SELECT "base"."sessionToken", "base"."userId", "base"."expires", "user" AS "user2") AS "root")) AS "root" FROM (SELECT * FROM "auth"."sessions" WHERE "sessionToken" = $1 LIMIT 1) AS "base" LEFT JOIN LATERAL (SELECT to_json((SELECT "root" FROM (SELECT "base.users"."id", "base.users"."name", "base.users"."email", "base.users"."emailVerified", "base.users"."image") AS "root")) AS "user" FROM (SELECT * FROM "auth"."users" WHERE "auth"."users"."id" = "base"."userId" LIMIT 1) AS "base.users") AS "root.users" ON ('true'))) AS "data""#;
-        let dialect = PostgreSqlDialect {};
-        let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(
+        let (statement, _params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
               "sessionToken": "fake"
             })),
             None,
         )?;
-        assert_eq!(vec![statement.clone()], sqlast);
-        assert_eq!(statement.to_string(), sql);
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -2727,10 +2880,7 @@ mod tests {
                 }
             "#,
         )?;
-        let sql = r#"WITH "result" AS (INSERT INTO "auth"."verification_tokens" ("expires", "identifier", "token") VALUES ($1, $2, $3) RETURNING "identifier", "token", "expires") SELECT json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data""#;
-        let dialect = PostgreSqlDialect {};
-        let sqlast = Parser::parse_sql(&dialect, sql)?;
-        let (statement, _params) = gql2sql(
+        let (statement, _params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
             "data": [{
@@ -2741,8 +2891,7 @@ mod tests {
             })),
             None,
         )?;
-        assert_eq!(vec![statement.clone()], sqlast);
-        assert_eq!(statement.to_string(), sql);
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -2760,7 +2909,7 @@ mod tests {
             "#,
         )?;
         // let sql = r#""#;
-        let (_statement, _params) = gql2sql(
+        let (_statement, _params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
                 "order_getTodoList": {

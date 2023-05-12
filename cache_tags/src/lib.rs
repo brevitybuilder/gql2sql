@@ -5,16 +5,26 @@ pub fn cache_tags(value: &Value, tags: &mut HashSet<String>) {
     match value {
         Value::Object(map) => {
             if let Some(Value::String(typename)) = map.get("__typename") {
-                tags.insert(format!("type:{typename}"));
+                let mut has_tag = false;
                 for (key, value) in map {
                     match (key.as_str(), value) {
-                        ("id" | "_id" | "key", Value::String(id)) => {
+                        ("id" | "key", Value::String(id)) => {
                             tags.insert(format!("type:{typename}:{key}:{id}"));
+                            has_tag = true;
+                        }
+                        (_, Value::String(id)) => {
+                            if key.ends_with("_id") {
+                                tags.insert(format!("type:{typename}:{key}:{id}"));
+                                has_tag = true;
+                            }
                         }
                         _ => {
                             cache_tags(value, tags);
                         }
                     }
+                }
+                if !has_tag {
+                    tags.insert(format!("type:{typename}"));
                 }
             } else {
                 for (_, value) in map {
@@ -75,6 +85,6 @@ mod tests {
             &mut tags,
         );
         println!("{:?}", tags.clone());
-        assert_eq!(tags.len(), 6);
+        assert_eq!(tags.len(), 4);
     }
 }

@@ -1,0 +1,5 @@
+---
+source: gql2sql/src/lib.rs
+expression: statement.to_string()
+---
+WITH "result" AS (INSERT INTO "auth"."Villain" ("name") VALUES ($1), ($2), ($3) RETURNING "id", "name") SELECT json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data"

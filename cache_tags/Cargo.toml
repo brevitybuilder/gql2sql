@@ -1,8 +1,12 @@
 [package]
 name = "cache_tags"
-version = "0.1.12"
+version = "0.1.16"
 edition = "2021"
-publish = false
+description = "Cache tags for gql2sql"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/brevitybuilder/gql2sql"
+repository = "https://github.com/brevitybuilder/gql2sql"
+readme = "../README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

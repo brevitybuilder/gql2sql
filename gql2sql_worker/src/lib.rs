@@ -2,7 +2,7 @@ use async_graphql_parser::parse_query;
 use gql2sql::gql2sql as gql2sql_rs;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use worker::{event, Cache, DurableObject, Env, Request, Response, Result, Router};
+use worker::{event, Cache, Env, Request, Response, Result, Router};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +16,7 @@ struct Query {
 struct Gql2sql {
     query: String,
     vars: Option<Vec<Value>>,
+		tags: Option<Vec<String>>,
 }
 
 #[event(fetch)]
@@ -31,11 +32,12 @@ pub async fn main(request: Request, env: Env, ctx: worker::Context) -> Result<Re
             }
             let body = req.json::<Query>().await?;
             let gqlast = parse_query(&body.query).unwrap();
-            let (statement, params) =
+            let (statement, params, tags) =
                 gql2sql_rs(gqlast, &body.variables, body.operation_name).unwrap();
             let mut resp = Response::from_json(&Gql2sql {
                 query: statement.to_string(),
                 vars: params,
+								tags,
             })?;
             resp.headers_mut().set("cache-control", "max-age=86400")?;
             //

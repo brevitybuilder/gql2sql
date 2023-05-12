@@ -7,15 +7,17 @@ use serde_json::Value;
 pub struct GqlResult {
   pub sql: String,
   pub params: Option<Vec<Value>>,
+  pub tags: Option<Vec<String>>,
 }
 
 #[napi]
 #[must_use]
 pub fn gql2sql(query: String, vars: Option<Value>) -> anyhow::Result<GqlResult> {
   let ast = parse_query(query)?;
-  let (sql, params) = gql2sql_rs(ast, &vars, None)?;
+  let (sql, params, tags) = gql2sql_rs(ast, &vars, None)?;
   Ok(GqlResult {
     sql: sql.to_string(),
     params,
+    tags,
   })
 }

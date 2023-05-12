@@ -14,8 +14,8 @@ default = ["console_error_panic_hook"]
 cfg-if = "1.0.0"
 worker = "0.0.16"
 serde_json = "1.0.96"
-serde = { version = "1.0.160", features = ["derive"] }
-async-graphql-parser = "5.0.7"
+serde = { version = "1.0.163", features = ["derive"] }
+async-graphql-parser = "5.0.8"
 gql2sql = { path = "../gql2sql" }
 
 # The `console_error_panic_hook` crate provides better debugging of panics by

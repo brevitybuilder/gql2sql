@@ -2,7 +2,6 @@
 
 members = [
     "gql2sql",
-    "gql2sql_wasm",
     "gql2sql_server",
     "gql2sql_node",
     "gql2sql_worker",
