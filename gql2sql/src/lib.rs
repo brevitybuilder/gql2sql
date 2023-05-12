@@ -13,13 +13,11 @@ use async_graphql_parser::{
 };
 use async_graphql_value::{Name, Value as GqlValue};
 use indexmap::IndexMap;
-use sqlparser::{
-    ast::{
-        Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr,
-        Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr,
-        Query, Select, SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins,
-        Value, Values, WildcardAdditionalOptions, With,
-    },
+use sqlparser::ast::{
+    Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
+    Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
+    SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
+    WildcardAdditionalOptions, With,
 };
 use std::{
     collections::HashSet,
@@ -2363,11 +2361,11 @@ pub fn gql2sql<'a>(
 mod tests {
     use super::*;
     use async_graphql_parser::parse_query;
-    
+
+    use insta::assert_snapshot;
     use serde_json::json;
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
-    use insta::assert_snapshot;
 
     #[test]
     fn simple() -> Result<(), anyhow::Error> {

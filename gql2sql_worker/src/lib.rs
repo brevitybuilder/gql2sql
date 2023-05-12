@@ -16,7 +16,7 @@ struct Query {
 struct Gql2sql {
     query: String,
     vars: Option<Vec<Value>>,
-		tags: Option<Vec<String>>,
+    tags: Option<Vec<String>>,
 }
 
 #[event(fetch)]
@@ -37,7 +37,7 @@ pub async fn main(request: Request, env: Env, ctx: worker::Context) -> Result<Re
             let mut resp = Response::from_json(&Gql2sql {
                 query: statement.to_string(),
                 vars: params,
-								tags,
+                tags,
             })?;
             resp.headers_mut().set("cache-control", "max-age=86400")?;
             //
