@@ -8,7 +8,7 @@ pub fn cache_tags(value: &Value, tags: &mut HashSet<String>) {
                 let mut has_tag = false;
                 for (key, value) in map {
                     match (key.as_str(), value) {
-                        ("id" | "key", Value::String(id)) => {
+                        ("id" | "key" | "email", Value::String(id)) => {
                             tags.insert(format!("type:{typename}:{key}:{id}"));
                             has_tag = true;
                         }
