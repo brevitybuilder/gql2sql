@@ -2172,11 +2172,11 @@ pub fn gql2sql<'a>(
                 .into_iter()
                 .flat_map(|(key, values)| {
                     if values.is_empty() {
-                        return vec![format!("table:{key}")];
+                        return vec![format!("type:{key}")];
                     }
                     values
                         .into_iter()
-                        .map(|v| format!("table:{key}:{}", v.to_string()))
+                        .map(|v| format!("type:{key}:{}", v.to_string()))
                         .collect::<Vec<_>>()
                 })
                 .collect();
