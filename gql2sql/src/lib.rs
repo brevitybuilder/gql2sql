@@ -1456,6 +1456,17 @@ fn parse_args<'a>(
             }
         }
         match (key, value) {
+            ("id" | "email", value) => {
+                selection = get_expr(
+                    Expr::Identifier(Ident {
+                        value: key.to_string(),
+                        quote_style: Some(QUOTE_CHAR),
+                    }),
+                    "eq",
+                    &value,
+                    sql_vars,
+                )?;
+            }
             ("filter" | "where", GqlValue::Object(filter)) => {
                 keys = get_filter_key(&filter, sql_vars)?;
                 selection = get_filter(&filter, sql_vars)?;
@@ -2920,6 +2931,30 @@ mod tests {
             None,
         )?;
         // assert_eq!(statement.to_string(), sql);
+        Ok(())
+    }
+
+    #[test]
+    fn query_simple_filter() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"
+                query Test($id: String!) {
+                    record(id: $id) @meta(table: "Record") {
+                        id
+                        name
+                        age
+                    }
+                }
+            "#,
+        )?;
+        let (statement, _params, _tags) = gql2sql(
+            gqlast,
+            &Some(json!({
+                "id": "fake"
+            })),
+            None,
+        )?;
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 }

@@ -1,0 +1,5 @@
+---
+source: gql2sql/src/lib.rs
+expression: statement.to_string()
+---
+SELECT json_build_object('record', (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base"."id", "base"."name", "base"."age") AS "root"))), '[]') AS "root" FROM (SELECT * FROM "Record" WHERE "id" = $1) AS "base")) AS "data"
