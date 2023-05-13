@@ -1649,6 +1649,17 @@ fn get_mutation_assignments<'a>(
             }
         }
         match (key.as_ref(), value) {
+            ("id" | "email", value) => {
+                selection = get_expr(
+                    Expr::Identifier(Ident {
+                        value: key.to_string(),
+                        quote_style: Some(QUOTE_CHAR),
+                    }),
+                    "eq",
+                    &value,
+                    sql_vars,
+                )?;
+            }
             ("filter" | "where", GqlValue::Object(filter)) => {
                 selection = get_filter(filter, sql_vars)?;
             }
