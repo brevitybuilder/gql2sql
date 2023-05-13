@@ -1,6 +1,6 @@
 [package]
 name = "gql2sql-worker"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2018"
 publish = false
 
