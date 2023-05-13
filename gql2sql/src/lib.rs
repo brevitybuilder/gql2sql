@@ -1374,11 +1374,13 @@ fn get_filter_key<'a>(
             .get("field")
             .map(|v| get_string_or_variable(v, variables))
             .ok_or(anyhow!("field not found"))??;
-        if let Some(GqlValue::String(value)) = args.get("value") {
-            tags.insert(Tag {
-                key: field,
-                value: value.clone(),
-            });
+        if let Some(value) = args.get("value") {
+            if let Ok(value) = get_string_or_variable(value, variables) {
+                tags.insert(Tag {
+                    key: field,
+                    value: value.clone(),
+                });
+            }
         }
     }
     if args.contains_key("children") {
