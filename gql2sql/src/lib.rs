@@ -492,7 +492,7 @@ fn get_join<'a>(
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a IndexMap<Name, JsonValue>,
     parent: &'a str,
-    tags: &'a mut IndexMap<String, Vec<Tag>>,
+    tags: &'a mut IndexMap<String, HashSet<Tag>>,
 ) -> AnyResult<Join> {
     let (selection, distinct, distinct_order, order_by, mut first, after, keys) =
         parse_args(arguments, variables, sql_vars)?;
@@ -504,7 +504,7 @@ fn get_join<'a>(
     if let Some(keys) = keys {
         tags.insert(name.to_owned(), keys.into_iter().collect());
     } else {
-        tags.insert(name.to_owned(), Vec::new());
+        tags.insert(name.to_owned(), HashSet::new());
     };
 
     let table_name = schema_name.as_ref().map_or_else(
@@ -542,38 +542,38 @@ fn get_join<'a>(
                     quote_style: Some(QUOTE_CHAR),
                 },
             ])));
-            let mut new_tags = Vec::new();
+            let mut new_tags = HashSet::new();
             if let Some(table_tags) = tags.get(parent) {
                 for tag in table_tags {
                     if tag.key == pk {
-                        new_tags.push(Tag {
+                        new_tags.insert(Tag {
                             key: fk.clone(),
                             value: tag.value.clone(),
                         });
                     } else if tag.key == fk {
-                        new_tags.push(Tag {
+                        new_tags.insert(Tag {
                             key: pk.clone(),
                             value: tag.value.clone(),
                         });
                     } else if is_single {
-                        new_tags.push(Tag {
+                        new_tags.insert(Tag {
                             key: fk.clone(),
                             value: format!("{{{{{fk}}}}}"),
                         });
                     } else {
-                        new_tags.push(Tag {
+                        new_tags.insert(Tag {
                             key: fk.clone(),
                             value: format!("{{{{{fk}}}}}"),
                         });
                     }
                 }
             } else if is_single {
-                new_tags.push(Tag {
+                new_tags.insert(Tag {
                     key: fk.clone(),
                     value: format!("{{{{{fk}}}}}"),
                 });
             } else {
-                new_tags.push(Tag {
+                new_tags.insert(Tag {
                     key: fk.clone(),
                     value: format!("{{{{{fk}}}}}"),
                 });
@@ -797,7 +797,7 @@ fn get_projection<'a>(
     path: Option<&'a str>,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a IndexMap<Name, JsonValue>,
-    tags: &mut IndexMap<String, Vec<Tag>>,
+    tags: &mut IndexMap<String, HashSet<Tag>>,
 ) -> AnyResult<(Vec<SelectItem>, Vec<Join>, Vec<Merge>)> {
     let mut projection = Vec::new();
     let mut joins = Vec::new();
@@ -2001,7 +2001,7 @@ pub fn gql2sql<'a>(
     };
 
     let (variables, sql_vars) = flatten_variables(variables, operation.variable_definitions);
-    let mut tags: IndexMap<String, Vec<Tag>> = IndexMap::new();
+    let mut tags: IndexMap<String, HashSet<Tag>> = IndexMap::new();
 
     match operation.ty {
         OperationType::Query => {
@@ -2019,7 +2019,7 @@ pub fn gql2sql<'a>(
                         if let Some(keys) = keys {
                             tags.insert(name.to_string(), keys.into_iter().collect());
                         } else {
-                            tags.insert(name.to_string(), Vec::new());
+                            tags.insert(name.to_string(), HashSet::new());
                         };
                         let table_name = schema_name.map_or_else(
                             || {
@@ -2204,7 +2204,7 @@ pub fn gql2sql<'a>(
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<String>>();
-            sub_tags.sort();
+            sub_tags.sort_unstable();
             return Ok((statement, params, Some(sub_tags)));
         }
         OperationType::Mutation => {
