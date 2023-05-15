@@ -2192,7 +2192,7 @@ pub fn gql2sql<'a>(
             if tags.is_empty() {
                 return Ok((statement, params, None));
             }
-            let sub_tags = tags
+            let mut sub_tags = tags
                 .into_iter()
                 .flat_map(|(key, values)| {
                     if values.is_empty() {
@@ -2203,7 +2203,8 @@ pub fn gql2sql<'a>(
                         .map(|v| format!("type:{key}:{}", v.to_string()))
                         .collect::<Vec<_>>()
                 })
-                .collect();
+                .collect::<Vec<String>>();
+            sub_tags.sort();
             return Ok((statement, params, Some(sub_tags)));
         }
         OperationType::Mutation => {
