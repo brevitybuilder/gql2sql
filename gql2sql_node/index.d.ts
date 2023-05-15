@@ -6,5 +6,6 @@
 export interface GqlResult {
   sql: string
   params?: Array<any>
+  tags?: Array<string>
 }
 export function gql2Sql(query: string, vars?: any | undefined | null): GqlResult
