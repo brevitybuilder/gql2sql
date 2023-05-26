@@ -492,6 +492,7 @@ fn get_aggregate_projection(items: &Vec<Positioned<Selection>>) -> AnyResult<Vec
             }
         }
     }
+    println!("aggs: {:?}", aggs);
     Ok(aggs)
 }
 
@@ -774,7 +775,7 @@ fn get_join<'a>(
                 }),
                 alias: Some(TableAlias {
                     name: Ident {
-                        value: "root.".to_owned() + &relation,
+                        value: format!("{name}.{relation}"),
                         quote_style: Some(QUOTE_CHAR),
                     },
                     columns: vec![],
@@ -828,7 +829,7 @@ fn get_join<'a>(
                 }),
                 alias: Some(TableAlias {
                     name: Ident {
-                        value: "root.".to_owned() + &relation,
+                        value: format!("{name}.{relation}"),
                         quote_style: Some(QUOTE_CHAR),
                     },
                     columns: vec![],
@@ -1054,7 +1055,7 @@ fn get_projection<'a>(
                         }),
                         condition: Expr::IsNotNull(Box::new(Expr::CompoundIdentifier(vec![
                             Ident {
-                                value: "root.".to_string() + &table_name,
+                                value: format!("{name}.{relation}"),
                                 quote_style: Some(QUOTE_CHAR),
                             },
                             Ident {
@@ -2982,6 +2983,9 @@ mod tests {
                     updated_at
                     anothers @relation(table: "N8Ag4Vgad4rYwcRmMJhGR", fields: ["id"], reference:["xb8nemrkchVQgxkXkCPhE"], aggregate: true) {
                         count
+                        avg {
+                          value
+                        }
                     }
                     stuff @relation(table: "iYrk3kyTqaDQrLgjDaE9n", fields: ["eT86hgrpFB49r7N6AXz63"], references: ["id"], single: true) {
                         id
@@ -2989,9 +2993,8 @@ mod tests {
                 }
             }"#,
         )?;
-        // let sql = r#""#;
-        let (_statement, _params, _tags) = gql2sql(gqlast, &None, None)?;
-        // assert_eq!(statement.to_string(), sql);
+        let (statement, _params, _tags) = gql2sql(gqlast, &None, None)?;
+        assert_snapshot!(statement.to_string());
         Ok(())
     }
 
@@ -3139,6 +3142,43 @@ mod tests {
             &Some(json!({
                 "id": "fake"
             })),
+            None,
+        )?;
+        assert_snapshot!(statement.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn query_andre() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"
+                query GetData($first: Int!, $after: Int!, $order: OrderBy!) {
+                agg @meta(table: "User", aggregate: true) {
+                    count
+                }
+                User(first: $first, after: $after, order: $order) @meta(table: "User") {
+                    id
+                    created_at
+                    updated_at
+                    name
+                    email
+                    profile_image_url
+                    gnHezR9MdBFH9kCthN3aB
+                    hbpGXRJKzb3KczPKTiRP4
+                    Kax3AYLAgYXqYfh8M9K6q
+                    GXDMeKziKF7K8EJUMqUKY
+                    listings @relation(table: "H33iDwNVqqMxAnVEgPaTh", fields: ["Gb8jAGqGDbYqfeqDDxKUF_id"], references: ["id"], aggregate: true) { count }
+                    RecievedMessages @relation(table: "BVeNWQDQ68cMtrgicenb8", fields: ["rKcrnCVVYTjtVWkjbQRdp_id"], references: ["id"], aggregate: true) { count }
+                    Bookings @relation(table: "BxDJ7CAhDYT47dKpDGnCP", fields: ["QJA6HybjgX8ddWtk8XhWW_id"], references: ["id"], aggregate: true) { count }
+                    Reviewer @relation(table: "Fjjm3XAhyDmbhzymrrkRT", fields: ["ezgmFyPD6z7NmQhDbGRHg_id"], references: ["id"], aggregate: true) { count }
+                    SentMessages @relation(table: "BVeNWQDQ68cMtrgicenb8", fields: ["iyja9R3cWMkQ63c8jakHX_id"], references: ["id"], aggregate: true) { count }
+                }
+    }
+            "#,
+        )?;
+        let (statement, _params, _tags) = gql2sql(
+            gqlast,
+            &Some(json!({"first":30,"after":0,"order":{"created_at":"DESC"}})),
             None,
         )?;
         assert_snapshot!(statement.to_string());
