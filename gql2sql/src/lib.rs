@@ -1879,10 +1879,11 @@ pub fn parse_query_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool, Opt
 #[must_use]
 pub fn parse_mutation_meta(
     field: &Field,
-) -> AnyResult<(&str, &str, bool, bool, bool, Option<&str>)> {
+) -> AnyResult<(&str, &str, bool, bool, bool, bool, Option<&str>)> {
     let mut is_insert = false;
     let mut is_update = false;
     let mut is_delete = false;
+    let mut is_single = false;
     let mut schema_name = None;
     let mut name = field.name.node.as_ref();
     let key = field
@@ -1925,6 +1926,10 @@ pub fn parse_mutation_meta(
                 if let GqlValue::Boolean(delete) = &argument.node {
                     is_delete = *delete;
                 }
+            } else if arg_name == "single" {
+                if let GqlValue::Boolean(delete) = &argument.node {
+                    is_single = *delete;
+                }
             } else if arg_name == "schema" {
                 if let GqlValue::String(schema) = &argument.node {
                     schema_name = Some(schema.as_ref());
@@ -1941,11 +1946,57 @@ pub fn parse_mutation_meta(
         return Err(anyhow!("Mutation cannot be both update and delete"));
     }
 
-    Ok((name, key, is_insert, is_update, is_delete, schema_name))
+    Ok((
+        name,
+        key,
+        is_insert,
+        is_update,
+        is_delete,
+        is_single,
+        schema_name,
+    ))
 }
 
 #[must_use]
-pub fn wrap_mutation(key: &str, value: Statement) -> Statement {
+pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement {
+    let mut base = Expr::Function(Function {
+        order_by: vec![],
+        over: None,
+        distinct: false,
+        special: false,
+        name: ObjectName(vec![Ident {
+            value: "coalesce".to_string(),
+            quote_style: None,
+        }]),
+        args: vec![
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                order_by: vec![],
+                name: ObjectName(vec![Ident {
+                    value: JSON_AGG.to_string(),
+                    quote_style: None,
+                }]),
+                args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                    Expr::Identifier(Ident {
+                        value: "result".to_string(),
+                        quote_style: Some(QUOTE_CHAR),
+                    }),
+                ))],
+                over: None,
+                distinct: false,
+                special: false,
+            }))),
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                Value::SingleQuotedString("[]".to_string()),
+            ))),
+        ],
+    });
+    if is_single {
+        base = Expr::BinaryOp {
+            left: Box::new(base),
+            op: BinaryOperator::Custom("->".to_string()),
+            right: Box::new(Expr::Value(Value::Number("0".to_string(), false))),
+        }
+    }
     Statement::Query(Box::new(Query {
         with: Some(With {
             cte_tables: vec![Cte {
@@ -1992,45 +2043,7 @@ pub fn wrap_mutation(key: &str, value: Statement) -> Statement {
                                     distinct: None,
                                     named_window: vec![],
                                     top: None,
-                                    projection: vec![SelectItem::UnnamedExpr(Expr::Function(
-                                        Function {
-                                            order_by: vec![],
-                                            over: None,
-                                            distinct: false,
-                                            special: false,
-                                            name: ObjectName(vec![Ident {
-                                                value: "coalesce".to_string(),
-                                                quote_style: None,
-                                            }]),
-                                            args: vec![
-                                                FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                                    Expr::Function(Function {
-                                                        order_by: vec![],
-                                                        name: ObjectName(vec![Ident {
-                                                            value: JSON_AGG.to_string(),
-                                                            quote_style: None,
-                                                        }]),
-                                                        args: vec![FunctionArg::Unnamed(
-                                                            FunctionArgExpr::Expr(
-                                                                Expr::Identifier(Ident {
-                                                                    value: "result".to_string(),
-                                                                    quote_style: Some(QUOTE_CHAR),
-                                                                }),
-                                                            ),
-                                                        )],
-                                                        over: None,
-                                                        distinct: false,
-                                                        special: false,
-                                                    }),
-                                                )),
-                                                FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                                    Expr::Value(Value::SingleQuotedString(
-                                                        "[]".to_string(),
-                                                    )),
-                                                )),
-                                            ],
-                                        },
-                                    ))],
+                                    projection: vec![SelectItem::UnnamedExpr(base)],
                                     into: None,
                                     from: vec![TableWithJoins {
                                         relation: TableFactor::Table {
@@ -2347,7 +2360,7 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
-                        let (name, key, is_insert, is_update, is_delete, schema_name) =
+                        let (name, key, is_insert, is_update, is_delete, is_single, schema_name) =
                             parse_mutation_meta(field)?;
 
                         let table_name = schema_name.map_or_else(
@@ -2413,6 +2426,7 @@ pub fn gql2sql<'a>(
                                         on: None,
                                         returning: Some(projection),
                                     },
+                                    is_single,
                                 ),
                                 params,
                                 None,
@@ -2459,6 +2473,7 @@ pub fn gql2sql<'a>(
                                         selection,
                                         returning: Some(projection),
                                     },
+                                    is_single,
                                 ),
                                 params,
                                 None,
@@ -2496,6 +2511,7 @@ pub fn gql2sql<'a>(
                                         selection,
                                         returning: Some(projection),
                                     },
+                                    is_single,
                                 ),
                                 params,
                                 None,
@@ -3029,7 +3045,7 @@ mod tests {
             r#"
                 mutation CreateVerificationToken($data: [VerificationToken!]!) {
                     insert(data: $data)
-                        @meta(table: "verification_tokens", insert: true, schema: "auth") {
+                        @meta(table: "verification_tokens", insert: true, schema: "auth", single: true) {
                         identifier
                         token
                         expires
