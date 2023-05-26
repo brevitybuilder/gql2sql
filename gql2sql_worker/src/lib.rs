@@ -1,7 +1,9 @@
+use std::fmt::format;
+
 use async_graphql_parser::parse_query;
 use gql2sql::gql2sql as gql2sql_rs;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{value::RawValue, Value};
 use worker::{event, Env, Fetch, Request, RequestInit, Response, Result, Router};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,9 +27,25 @@ struct SqlPayload {
     params: Option<Vec<Value>>,
 }
 
+#[derive(Serialize)]
+struct Extensions {
+    tags: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+struct QueryResult {
+    data: Box<serde_json::value::RawValue>,
+    extensions: Option<Extensions>,
+}
+
+#[derive(Deserialize)]
+struct DataResponse {
+    data: Box<serde_json::value::RawValue>,
+}
+
 #[derive(Deserialize)]
 struct SqlResponse {
-    rows: Box<serde_json::value::RawValue>,
+    rows: Vec<DataResponse>,
 }
 
 #[event(fetch)]
@@ -39,23 +57,20 @@ pub async fn main(request: Request, env: Env, _ctx: worker::Context) -> Result<R
         .post_async("/graphql", |mut req, _| async move {
             let body = req.json::<Query>().await?;
             let gqlast = parse_query(&body.query).unwrap();
-            let (statement, params, _tags) =
+            let (statement, params, tags) =
                 gql2sql_rs(gqlast, &body.variables, body.operation_name).unwrap();
             let mut fetch_headers = worker::Headers::new();
             fetch_headers.set(
                 "Neon-Connection-String",
-                "postgres://nick:MvRE0dSpsKI1@ep-withered-paper-740685.us-west-2.aws.neon.tech/neondb",
+                "postgres://nick:MvRE0dSpsKI1@ep-cold-violet-821289.us-west-2.aws.neon.tech/neondb",
             )?;
-            fetch_headers.set(
-                "Content-Type",
-                "application/json"
-            )?;
+            fetch_headers.set("Content-Type", "application/json")?;
             let payload = SqlPayload {
                 query: statement.to_string(),
                 params,
             };
             let mut resp = Fetch::Request(Request::new_with_init(
-                "https://ep-withered-paper-740685.us-west-2.aws.neon.tech/sql",
+                "https://ep-cold-violet-821289.us-west-2.aws.neon.tech/sql",
                 RequestInit::new()
                     .with_method(worker::Method::Post)
                     .with_headers(fetch_headers)
@@ -63,8 +78,13 @@ pub async fn main(request: Request, env: Env, _ctx: worker::Context) -> Result<R
             )?)
             .send()
             .await?;
-            let data = resp.json::<SqlResponse>().await?;
-            let resp = Response::from_json(&data.rows)?;
+						let data = resp.json::<SqlResponse>().await?;
+						let rows = data.rows;
+						let first_row = rows.into_iter().next().ok_or("No rows returned")?;
+            let resp = Response::from_json(&QueryResult {
+                data: first_row.data,
+                extensions: Some(Extensions { tags }),
+            })?;
             Ok(resp)
         })
         .get("/worker-version", |_, ctx| {
