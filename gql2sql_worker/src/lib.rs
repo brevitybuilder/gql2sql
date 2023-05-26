@@ -78,9 +78,9 @@ pub async fn main(request: Request, env: Env, _ctx: worker::Context) -> Result<R
             )?)
             .send()
             .await?;
-						let data = resp.json::<SqlResponse>().await?;
-						let rows = data.rows;
-						let first_row = rows.into_iter().next().ok_or("No rows returned")?;
+            let data = resp.json::<SqlResponse>().await?;
+            let rows = data.rows;
+            let first_row = rows.into_iter().next().ok_or("No rows returned")?;
             let resp = Response::from_json(&QueryResult {
                 data: first_row.data,
                 extensions: Some(Extensions { tags }),
