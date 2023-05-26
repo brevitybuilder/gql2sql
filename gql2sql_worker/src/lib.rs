@@ -2,7 +2,7 @@ use async_graphql_parser::parse_query;
 use gql2sql::gql2sql as gql2sql_rs;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use worker::{event, Cache, Env, Fetch, Request, RequestInit, Response, Result, Router};
+use worker::{event, Env, Fetch, Request, RequestInit, Response, Result, Router};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

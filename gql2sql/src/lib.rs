@@ -21,7 +21,7 @@ use sqlparser::ast::{
 };
 use std::{
     collections::HashSet,
-    fmt::{format, Debug, Formatter},
+    fmt::{Debug, Formatter},
     iter::zip,
 };
 
@@ -549,7 +549,7 @@ fn get_join<'a>(
         } else {
             (parent, relation.as_str())
         };
-        join_name = Some(format!("_{}To{}", a, b));
+        join_name = Some(format!("_{a}To{b}"));
     }
     let join_filter = join_name.as_ref().map_or_else(
         || {
@@ -1017,7 +1017,7 @@ fn get_projection<'a>(
                         .directives
                         .iter()
                         .find(|d| d.node.name.node.as_ref() == "args");
-                    let (relation, _fks, _pks, _is_single, _is_aggregate, is_many, schema_name) =
+                    let (relation, _fks, _pks, _is_single, _is_aggregate, _is_many, schema_name) =
                         get_relation(&frag.directives, sql_vars)?;
                     let join = get_join(
                         args.map_or(&vec![], |dir| &dir.node.arguments),
@@ -1198,7 +1198,7 @@ fn get_filter_query(
     table_names: Vec<ObjectName>,
     distinct: Option<Vec<String>>,
     distinct_order: Option<Vec<OrderByExpr>>,
-    is_many: bool,
+    _is_many: bool,
 ) -> Query {
     let mut projection = vec![SelectItem::Wildcard(WildcardAdditionalOptions::default())];
     let is_distinct = distinct.is_some();
@@ -1230,7 +1230,11 @@ fn get_filter_query(
     let q = Query {
         with: None,
         body: Box::new(SetExpr::Select(Box::new(Select {
-            distinct: if is_distinct { Some(sqlparser::ast::Distinct::Distinct) } else { None },
+            distinct: if is_distinct {
+                Some(sqlparser::ast::Distinct::Distinct)
+            } else {
+                None
+            },
             named_window: vec![],
             top: None,
             projection,
@@ -1501,10 +1505,7 @@ fn get_filter_key<'a>(
             .ok_or(anyhow!("field not found"))??;
         if let Some(value) = args.get("value") {
             if let Ok(value) = get_string_or_variable(value, variables) {
-                tags.insert(Tag {
-                    key: field,
-                    value: value.clone(),
-                });
+                tags.insert(Tag { key: field, value });
             }
         }
     }
@@ -1782,7 +1783,7 @@ fn get_mutation_assignments<'a>(
                         quote_style: Some(QUOTE_CHAR),
                     }),
                     "eq",
-                    &value,
+                    value,
                     sql_vars,
                 )?;
             }
