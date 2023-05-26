@@ -1,0 +1,6 @@
+---
+source: gql2sql/src/lib.rs
+assertion_line: 3222
+expression: statement.to_string()
+---
+WITH "result" AS (DELETE FROM "auth"."verification_tokens" WHERE ("identifier" = $1 AND "token" = $2) RETURNING "identifier", "token", "expires") SELECT json_build_object('delete', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data"

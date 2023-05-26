@@ -2503,11 +2503,16 @@ pub fn gql2sql<'a>(
                                 wrap_mutation(
                                     key,
                                     Statement::Delete {
-                                        tables: vec![ObjectName(vec![Ident {
-                                            value: table_name.to_string(),
-                                            quote_style: Some(QUOTE_CHAR),
-                                        }])],
-                                        from: vec![],
+                                        tables: vec![],
+                                        from: vec![TableWithJoins {
+                                            relation: TableFactor::Table {
+                                                name: table_name,
+                                                alias: None,
+                                                args: None,
+                                                with_hints: vec![],
+                                            },
+                                            joins: vec![],
+                                        }],
                                         using: None,
                                         selection,
                                         returning: Some(projection),
@@ -3173,12 +3178,45 @@ mod tests {
                     Reviewer @relation(table: "Fjjm3XAhyDmbhzymrrkRT", fields: ["ezgmFyPD6z7NmQhDbGRHg_id"], references: ["id"], aggregate: true) { count }
                     SentMessages @relation(table: "BVeNWQDQ68cMtrgicenb8", fields: ["iyja9R3cWMkQ63c8jakHX_id"], references: ["id"], aggregate: true) { count }
                 }
-    }
+            }
             "#,
         )?;
         let (statement, _params, _tags) = gql2sql(
             gqlast,
             &Some(json!({"first":30,"after":0,"order":{"created_at":"DESC"}})),
+            None,
+        )?;
+        assert_snapshot!(statement.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn mutation_delete() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"
+            mutation DeleteVerificationToken(
+                $identifier: String!
+                $token: String!
+                ) {
+                delete(
+                    filter: {
+                    field: "identifier"
+                    operator: "eq"
+                    value: $identifier
+                    logicalOperator: "AND"
+                    children: [{ field: "token", operator: "eq", value: $token }]
+                    }
+                ) @meta(table: "verification_tokens", delete: true, schema: "auth") {
+                    identifier
+                    token
+                    expires
+                }
+            }
+            "#,
+        )?;
+        let (statement, _params, _tags) = gql2sql(
+            gqlast,
+            &Some(json!({ "token": "12345", "identifier": "fake@email.com" })),
             None,
         )?;
         assert_snapshot!(statement.to_string());
