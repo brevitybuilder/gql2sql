@@ -3,6 +3,7 @@
 
 **/*.rs.bk
 wasm-pack.log
+.wrangler
 
 build/
 /target
