@@ -396,9 +396,29 @@ fn get_root_query(
     }))
 }
 
-fn get_agg_agg_projection(field: &Field) -> Vec<FunctionArg> {
+fn get_agg_agg_projection(field: &Field, table_name: String) -> Vec<FunctionArg> {
     let name = field.name.node.as_ref();
     match name {
+        "__typename" => {
+            vec![
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                    Value::SingleQuotedString(field.name.node.to_string()),
+                ))),
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                    order_by: vec![],
+                    name: ObjectName(vec![Ident {
+                        value: "MIN".to_string(),
+                        quote_style: None,
+                    }]),
+                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                        Value::SingleQuotedString(table_name),
+                    )))],
+                    over: None,
+                    distinct: false,
+                    special: false,
+                }))),
+            ]
+        }
         "count" => {
             vec![
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
@@ -473,12 +493,15 @@ fn get_agg_agg_projection(field: &Field) -> Vec<FunctionArg> {
     }
 }
 
-fn get_aggregate_projection(items: &Vec<Positioned<Selection>>) -> AnyResult<Vec<FunctionArg>> {
+fn get_aggregate_projection(
+    items: &Vec<Positioned<Selection>>,
+    table_name: String,
+) -> AnyResult<Vec<FunctionArg>> {
     let mut aggs = Vec::new();
     for selection in items {
         match &selection.node {
             Selection::Field(field) => {
-                aggs.extend(get_agg_agg_projection(&field.node));
+                aggs.extend(get_agg_agg_projection(&field.node, table_name.clone()));
             }
             Selection::FragmentSpread(_) => {
                 return Err(anyhow!(
@@ -492,7 +515,6 @@ fn get_aggregate_projection(items: &Vec<Positioned<Selection>>) -> AnyResult<Vec
             }
         }
     }
-    println!("aggs: {:?}", aggs);
     Ok(aggs)
 }
 
@@ -742,7 +764,7 @@ fn get_join<'a>(
         is_many,
     );
     if is_aggregate {
-        let aggs = get_aggregate_projection(selection_items)?;
+        let aggs = get_aggregate_projection(selection_items, format!("Agg_{name}"))?;
         Ok(Join {
             relation: TableFactor::Derived {
                 lateral: true,
@@ -2198,7 +2220,10 @@ pub fn gql2sql<'a>(
                             false,
                         );
                         if is_aggregate {
-                            let aggs = get_aggregate_projection(&field.selection_set.node.items)?;
+                            let aggs = get_aggregate_projection(
+                                &field.selection_set.node.items,
+                                format!("Agg_{name}"),
+                            )?;
                             statements.push((
                                 key,
                                 Query {
@@ -3157,36 +3182,44 @@ mod tests {
     fn query_andre() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-                query GetData($first: Int!, $after: Int!, $order: OrderBy!) {
-                agg @meta(table: "User", aggregate: true) {
-                    count
+                query BrevityQuery($filter_getFjjm3XAhyDmbhzymrrkRTAggregate: Fjjm3XAhyDmbhzymrrkRT_Filter, $filter_getFjjm3XAhyDmbhzymrrkRTList: Fjjm3XAhyDmbhzymrrkRT_Filter, $id_getH33iDwNVqqMxAnVEgPaThById: ID) {
+                    getFjjm3XAhyDmbhzymrrkRTAggregate(
+                        filter: $filter_getFjjm3XAhyDmbhzymrrkRTAggregate
+                    ) @meta(table: "Fjjm3XAhyDmbhzymrrkRT", aggregate: true) {
+                        avg {
+                            XF4f6Qrhk86AX6dFWjYDt
+                        }
+                    }
+                    getMr3R877DKbWTNWRzmEjxEAggregate @meta(table: "Mr3R877DKbWTNWRzmEjxE", aggregate: true) {
+                        __typename
+                    }
                 }
-                User(first: $first, after: $after, order: $order) @meta(table: "User") {
-                    id
-                    created_at
-                    updated_at
-                    name
-                    email
-                    profile_image_url
-                    gnHezR9MdBFH9kCthN3aB
-                    hbpGXRJKzb3KczPKTiRP4
-                    Kax3AYLAgYXqYfh8M9K6q
-                    GXDMeKziKF7K8EJUMqUKY
-                    listings @relation(table: "H33iDwNVqqMxAnVEgPaTh", fields: ["Gb8jAGqGDbYqfeqDDxKUF_id"], references: ["id"], aggregate: true) { count }
-                    RecievedMessages @relation(table: "BVeNWQDQ68cMtrgicenb8", fields: ["rKcrnCVVYTjtVWkjbQRdp_id"], references: ["id"], aggregate: true) { count }
-                    Bookings @relation(table: "BxDJ7CAhDYT47dKpDGnCP", fields: ["QJA6HybjgX8ddWtk8XhWW_id"], references: ["id"], aggregate: true) { count }
-                    Reviewer @relation(table: "Fjjm3XAhyDmbhzymrrkRT", fields: ["ezgmFyPD6z7NmQhDbGRHg_id"], references: ["id"], aggregate: true) { count }
-                    SentMessages @relation(table: "BVeNWQDQ68cMtrgicenb8", fields: ["iyja9R3cWMkQ63c8jakHX_id"], references: ["id"], aggregate: true) { count }
-                }
-            }
             "#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, params, _tags) = gql2sql(
             gqlast,
-            &Some(json!({"first":30,"after":0,"order":{"created_at":"DESC"}})),
+            &Some(json!({
+              "filter_getFjjm3XAhyDmbhzymrrkRTAggregate": {
+                "id": "gjHrXAP8n7ihy9frhQGUj",
+                "field": "TbFeY8XVMaYnkQjDPWMkb_id",
+                "value": "HAzqFfhQGbaB6WKBr6LA7",
+                "children": [],
+                "operator": "eq",
+                "logicalOperator": "AND"
+              },
+              "filter_getFjjm3XAhyDmbhzymrrkRTList": {
+                "id": "tt6WC3JDamJ9DaaJXw7mV",
+                "field": "TbFeY8XVMaYnkQjDPWMkb_id",
+                "children": [],
+                "operator": "eq",
+                "logicalOperator": "AND"
+              },
+              "id_getH33iDwNVqqMxAnVEgPaThById": "HAzqFfhQGbaB6WKBr6LA7"
+            })),
             None,
         )?;
         assert_snapshot!(statement.to_string());
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
 
