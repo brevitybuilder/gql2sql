@@ -53,7 +53,19 @@ fn get_value<'a>(value: &'a GqlValue, sql_vars: &'a IndexMap<Name, JsonValue>) -
                     ]));
                 }
             }
-            Err(anyhow!("object not supported"))
+            Ok(Expr::Function(Function {
+                name: ObjectName(vec![Ident {
+                    value: "TO_JSONB".to_string(),
+                    quote_style: None,
+                }]),
+                args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                    Value::SingleQuotedString(serde_json::to_string(o)?),
+                )))],
+                over: None,
+                distinct: false,
+                special: false,
+                order_by: vec![],
+            }))
         }
     }
 }
@@ -761,7 +773,6 @@ fn get_join<'a>(
         ),
         distinct,
         distinct_order,
-        is_many,
     );
     if is_aggregate {
         let aggs = get_aggregate_projection(selection_items, format!("Agg_{name}"))?;
@@ -1221,7 +1232,6 @@ fn get_filter_query(
     table_names: Vec<ObjectName>,
     distinct: Option<Vec<String>>,
     distinct_order: Option<Vec<OrderByExpr>>,
-    _is_many: bool,
 ) -> Query {
     let mut projection = vec![SelectItem::Wildcard(WildcardAdditionalOptions::default())];
     let is_distinct = distinct.is_some();
@@ -2217,7 +2227,6 @@ pub fn gql2sql<'a>(
                             vec![table_name],
                             distinct,
                             distinct_order,
-                            false,
                         );
                         if is_aggregate {
                             let aggs = get_aggregate_projection(
@@ -3182,38 +3191,62 @@ mod tests {
     fn query_andre() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-                query BrevityQuery($filter_getFjjm3XAhyDmbhzymrrkRTAggregate: Fjjm3XAhyDmbhzymrrkRT_Filter, $filter_getFjjm3XAhyDmbhzymrrkRTList: Fjjm3XAhyDmbhzymrrkRT_Filter, $id_getH33iDwNVqqMxAnVEgPaThById: ID) {
-                    getFjjm3XAhyDmbhzymrrkRTAggregate(
-                        filter: $filter_getFjjm3XAhyDmbhzymrrkRTAggregate
-                    ) @meta(table: "Fjjm3XAhyDmbhzymrrkRT", aggregate: true) {
-                        avg {
-                            XF4f6Qrhk86AX6dFWjYDt
-                        }
-                    }
-                    getMr3R877DKbWTNWRzmEjxEAggregate @meta(table: "Mr3R877DKbWTNWRzmEjxE", aggregate: true) {
-                        __typename
-                    }
+            query BrevityQuery($id_getH33iDwNVqqMxAnVEgPaThById: ID) {
+            getH33iDwNVqqMxAnVEgPaThById(id: $id_getH33iDwNVqqMxAnVEgPaThById)
+                @meta(table: "H33iDwNVqqMxAnVEgPaTh", single: true) {
+                d8GJJg9DjNehPAeJcpTjM
+                Fjjm3XAhyDmbhzymrrkRT_Aggregate
+                @relation(
+                    table: "Fjjm3XAhyDmbhzymrrkRT"
+                    fields: ["id"]
+                    aggregate: true
+                    references: ["TbFeY8XVMaYnkQjDPWMkb_id"]
+                ) {
+                avg {
+                    XF4f6Qrhk86AX6dFWjYDt
                 }
+                }
+                q6pJYTjmbprTNRdqG9Jrw
+                egeyQ33H3z4EqzcRVFchV
+                HYWfawTyxPNUf9a4DAH79
+                H33iDwNVqqMxAnVEgPaTh_by_MdYg7jdht8ByhnKdfXBAb
+                @relation(
+                    table: "MdYg7jdht8ByhnKdfXBAb"
+                    fields: ["id"]
+                    single: true
+                    references: ["MiyNcUJzKGJgQ9BERD8fr_id"]
+                ) {
+                H6hp6JGhzgPTYmLYwLk8P
+                id
+                }
+                zFjEBPkLYmEAxLHrt3N4B
+                LJDX6neXAYeXt9aVWxTRk
+                FwpKpCegQH4EkzbjbNqVn
+                ayipLT8iKHNTdhmiVqmxq
+                Mr3R877DKbWTNWRzmEjxE_Aggregate
+                @relation(many: true, table: "Mr3R877DKbWTNWRzmEjxE", aggregate: true) {
+                count
+                }
+                r7xwAFrckDaVLwPzUAADB
+                H33iDwNVqqMxAnVEgPaTh_by_User
+                @relation(
+                    table: "User"
+                    fields: ["id"]
+                    single: true
+                    references: ["Gb8jAGqGDbYqfeqDDxKUF_id"]
+                ) {
+                gnHezR9MdBFH9kCthN3aB
+                created_at
+                id
+                }
+                id
+            }
+            }
             "#,
         )?;
         let (statement, params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
-              "filter_getFjjm3XAhyDmbhzymrrkRTAggregate": {
-                "id": "gjHrXAP8n7ihy9frhQGUj",
-                "field": "TbFeY8XVMaYnkQjDPWMkb_id",
-                "value": "HAzqFfhQGbaB6WKBr6LA7",
-                "children": [],
-                "operator": "eq",
-                "logicalOperator": "AND"
-              },
-              "filter_getFjjm3XAhyDmbhzymrrkRTList": {
-                "id": "tt6WC3JDamJ9DaaJXw7mV",
-                "field": "TbFeY8XVMaYnkQjDPWMkb_id",
-                "children": [],
-                "operator": "eq",
-                "logicalOperator": "AND"
-              },
               "id_getH33iDwNVqqMxAnVEgPaThById": "HAzqFfhQGbaB6WKBr6LA7"
             })),
             None,
