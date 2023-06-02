@@ -42,8 +42,13 @@ fn get_value<'a>(value: &'a GqlValue, sql_vars: &'a IndexMap<Name, JsonValue>) -
         GqlValue::Number(f) => Ok(Expr::Value(Value::Number(f.to_string(), false))),
         GqlValue::Boolean(b) => Ok(Expr::Value(Value::Boolean(b.to_owned()))),
         GqlValue::Enum(e) => Ok(Expr::Value(Value::SingleQuotedString(e.as_ref().into()))),
-        GqlValue::List(_l) => Err(anyhow!("list not supported")),
         GqlValue::Binary(_b) => Err(anyhow!("binary not supported")),
+        GqlValue::List(l) => Ok(Expr::Cast {
+            expr: Box::new(Expr::Value(Value::SingleQuotedString(
+                serde_json::to_string(l)?,
+            ))),
+            data_type: DataType::Custom(ObjectName(vec![Ident::new("JSONB")]), vec![]),
+        }),
         GqlValue::Object(o) => {
             if o.contains_key("_parentRef") {
                 if let Some(GqlValue::String(s)) = o.get("_parentRef") {
@@ -53,19 +58,12 @@ fn get_value<'a>(value: &'a GqlValue, sql_vars: &'a IndexMap<Name, JsonValue>) -
                     ]));
                 }
             }
-            Ok(Expr::Function(Function {
-                name: ObjectName(vec![Ident {
-                    value: "TO_JSONB".to_string(),
-                    quote_style: None,
-                }]),
-                args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                    Value::SingleQuotedString(serde_json::to_string(o)?),
-                )))],
-                over: None,
-                distinct: false,
-                special: false,
-                order_by: vec![],
-            }))
+            Ok(Expr::Cast {
+                expr: Box::new(Expr::Value(Value::SingleQuotedString(
+                    serde_json::to_string(o)?,
+                ))),
+                data_type: DataType::Custom(ObjectName(vec![Ident::new("JSONB")]), vec![]),
+            })
         }
     }
 }
@@ -1674,22 +1672,22 @@ fn parse_args<'a>(
                         .as_mut(),
                 );
             }
-            ("first", GqlValue::Variable(name)) => {
+            ("first" | "limit", GqlValue::Variable(name)) => {
                 first = Some(get_value(&GqlValue::Variable(name), sql_vars)?);
             }
-            ("first", GqlValue::Number(count)) => {
+            ("first" | "limit", GqlValue::Number(count)) => {
                 first = Some(Expr::Value(Value::Number(
                     count.as_i64().expect("int to be an i64").to_string(),
                     false,
                 )));
             }
-            ("after", GqlValue::Variable(name)) => {
+            ("after" | "offset", GqlValue::Variable(name)) => {
                 after = Some(Offset {
                     value: get_value(&GqlValue::Variable(name), sql_vars)?,
                     rows: OffsetRows::None,
                 });
             }
-            ("after", GqlValue::Number(count)) => {
+            ("after" | "offset", GqlValue::Number(count)) => {
                 after = Some(Offset {
                     value: Expr::Value(Value::Number(
                         count.as_i64().expect("int to be an i64").to_string(),
