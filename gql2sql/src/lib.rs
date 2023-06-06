@@ -1,7 +1,8 @@
 mod consts;
 
 use crate::consts::{
-    BASE, DATA_LABEL, JSON_AGG, JSON_BUILD_OBJECT, ON, QUOTE_CHAR, ROOT_LABEL, TO_JSON, TO_JSONB,
+    BASE, DATA_LABEL, JSONB_BUILD_OBJECT, JSON_AGG, JSON_BUILD_OBJECT, ON, QUOTE_CHAR, ROOT_LABEL,
+    TO_JSON, TO_JSONB,
 };
 use anyhow::anyhow;
 use async_graphql_parser::{
@@ -58,12 +59,31 @@ fn get_value<'a>(value: &'a GqlValue, sql_vars: &'a IndexMap<Name, JsonValue>) -
                     ]));
                 }
             }
-            Ok(Expr::Cast {
-                expr: Box::new(Expr::Value(Value::SingleQuotedString(
-                    serde_json::to_string(o)?,
-                ))),
-                data_type: DataType::Custom(ObjectName(vec![Ident::new("JSONB")]), vec![]),
-            })
+            Ok(Expr::Function(Function {
+                name: ObjectName(vec![Ident::new(JSONB_BUILD_OBJECT)]),
+                args: o
+                    .into_iter()
+                    .flat_map(|(k, v)| {
+                        let value = get_value(v, sql_vars).unwrap();
+                        vec![
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                Value::SingleQuotedString(k.to_string()),
+                            ))),
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(value)),
+                        ]
+                    })
+                    .collect::<Vec<FunctionArg>>(),
+                over: None,
+                distinct: false,
+                special: false,
+                order_by: vec![],
+            }))
+            // Ok(Expr::Cast {
+            //     expr: Box::new(Expr::Value(Value::SingleQuotedString(
+            //         serde_json::to_string(o)?,
+            //     ))),
+            //     data_type: DataType::Custom(ObjectName(vec![Ident::new("JSONB")]), vec![]),
+            // })
         }
     }
 }
@@ -3284,6 +3304,36 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn mutation_image() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"
+            mutation Update($id: String!, $set: dogUpdateInput!) {
+                update(
+                  filter: {
+                    field: "id"
+                    operator: "eq"
+                    value: $id
+                  }
+                  set: $set
+                ) @meta(table: "WFqGH6dk8MpxfpHXh7awi", update: true) {
+                  id
+                }
+              }
+            "#,
+        )?;
+        let (statement, params, _tags) = gql2sql(
+            gqlast,
+            &Some(
+                json!({"id":"ffj9ACLQqpzjyh8yNFeQ6","set":{"updated_at":"2023-06-06T19:41:47+00:00","ynWfqMzGjjVQYzbKx4rMX":"DOGGY","QYtpTcmJCe6zfCHWwpNjR":"MYDOG","a8heQgUMyFync44JACwKA":{"src":"https://assets.brevity.io/uploads/jwy1g8rs7bxr9ptkaf6sy/lp_image-1685987665741.png","width":588,"height":1280}}}),
+            ),
+            None,
+        )?;
+        assert_snapshot!(statement.to_string());
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
 }

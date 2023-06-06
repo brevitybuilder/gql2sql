@@ -1,0 +1,5 @@
+---
+source: gql2sql/src/lib.rs
+expression: statement.to_string()
+---
+WITH "result" AS (UPDATE "WFqGH6dk8MpxfpHXh7awi" SET "QYtpTcmJCe6zfCHWwpNjR" = $2, "a8heQgUMyFync44JACwKA" = jsonb_build_object('height', $3, 'src', $4, 'width', $5), "updated_at" = $6, "ynWfqMzGjjVQYzbKx4rMX" = $7 WHERE "id" = $1 RETURNING "id") SELECT json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data"
