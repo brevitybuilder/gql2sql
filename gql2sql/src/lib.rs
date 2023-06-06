@@ -1,8 +1,8 @@
 mod consts;
 
 use crate::consts::{
-    BASE, DATA_LABEL, JSONB_BUILD_OBJECT, JSON_AGG, JSON_BUILD_OBJECT, ON, QUOTE_CHAR, ROOT_LABEL,
-    TO_JSON, TO_JSONB,
+    BASE, DATA_LABEL, JSONB_BUILD_ARRAY, JSONB_BUILD_OBJECT, JSON_AGG, JSON_BUILD_OBJECT, ON,
+    QUOTE_CHAR, ROOT_LABEL, TO_JSON, TO_JSONB,
 };
 use anyhow::anyhow;
 use async_graphql_parser::{
@@ -44,12 +44,20 @@ fn get_value<'a>(value: &'a GqlValue, sql_vars: &'a IndexMap<Name, JsonValue>) -
         GqlValue::Boolean(b) => Ok(Expr::Value(Value::Boolean(b.to_owned()))),
         GqlValue::Enum(e) => Ok(Expr::Value(Value::SingleQuotedString(e.as_ref().into()))),
         GqlValue::Binary(_b) => Err(anyhow!("binary not supported")),
-        GqlValue::List(l) => Ok(Expr::Cast {
-            expr: Box::new(Expr::Value(Value::SingleQuotedString(
-                serde_json::to_string(l)?,
-            ))),
-            data_type: DataType::Custom(ObjectName(vec![Ident::new("JSONB")]), vec![]),
-        }),
+        GqlValue::List(l) => Ok(Expr::Function(Function {
+            name: ObjectName(vec![Ident::new(JSONB_BUILD_ARRAY)]),
+            args: l
+                .into_iter()
+                .map(|v| {
+                    let value = get_value(v, sql_vars).unwrap();
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(value))
+                })
+                .collect::<Vec<FunctionArg>>(),
+            over: None,
+            distinct: false,
+            special: false,
+            order_by: vec![],
+        })),
         GqlValue::Object(o) => {
             if o.contains_key("_parentRef") {
                 if let Some(GqlValue::String(s)) = o.get("_parentRef") {
@@ -78,12 +86,6 @@ fn get_value<'a>(value: &'a GqlValue, sql_vars: &'a IndexMap<Name, JsonValue>) -
                 special: false,
                 order_by: vec![],
             }))
-            // Ok(Expr::Cast {
-            //     expr: Box::new(Expr::Value(Value::SingleQuotedString(
-            //         serde_json::to_string(o)?,
-            //     ))),
-            //     data_type: DataType::Custom(ObjectName(vec![Ident::new("JSONB")]), vec![]),
-            // })
         }
     }
 }
