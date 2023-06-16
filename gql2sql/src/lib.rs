@@ -958,12 +958,13 @@ fn get_projection<'a>(
             Selection::Field(field) => {
                 let field = &field.node;
                 if !field.selection_set.node.items.is_empty() {
+                    let name = format!("join.{}", field.name.node.as_ref());
                     let join = get_join(
                         &field.arguments,
                         &field.directives,
                         &field.selection_set.node.items,
                         path,
-                        &field.name.node,
+                        &name,
                         variables,
                         sql_vars,
                         relation,
@@ -974,7 +975,7 @@ fn get_projection<'a>(
                         Some(alias) => {
                             projection.push(SelectItem::ExprWithAlias {
                                 expr: Expr::Identifier(Ident {
-                                    value: field.name.node.to_string(),
+                                    value: name,
                                     quote_style: Some(QUOTE_CHAR),
                                 }),
                                 alias: Ident {
@@ -984,10 +985,16 @@ fn get_projection<'a>(
                             });
                         }
                         None => {
-                            projection.push(SelectItem::UnnamedExpr(Expr::Identifier(Ident {
-                                value: field.name.node.to_string(),
-                                quote_style: Some(QUOTE_CHAR),
-                            })));
+                            projection.push(SelectItem::ExprWithAlias {
+                                expr: Expr::Identifier(Ident {
+                                    value: name,
+                                    quote_style: Some(QUOTE_CHAR),
+                                }),
+                                alias: Ident {
+                                    value: field.name.node.to_string(),
+                                    quote_style: Some(QUOTE_CHAR),
+                                },
+                            });
                         }
                     }
                 } else {
@@ -3331,6 +3338,38 @@ mod tests {
             gqlast,
             &Some(
                 json!({"id":"ffj9ACLQqpzjyh8yNFeQ6","set":{"updated_at":"2023-06-06T19:41:47+00:00","ynWfqMzGjjVQYzbKx4rMX":"DOGGY","QYtpTcmJCe6zfCHWwpNjR":"MYDOG","a8heQgUMyFync44JACwKA":{"src":"https://assets.brevity.io/uploads/jwy1g8rs7bxr9ptkaf6sy/lp_image-1685987665741.png","width":588,"height":1280}}}),
+            ),
+            None,
+        )?;
+        assert_snapshot!(statement.to_string());
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
+        Ok(())
+    }
+    #[test]
+    fn nested_query() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"
+                query BrevityQuery($id_getU7BBKiUwTgwiWMcgUYA4CById: ID) {
+                getU7BBKiUwTgwiWMcgUYA4CById(id: $id_getU7BBKiUwTgwiWMcgUYA4CById) @meta(table: "U7BBKiUwTgwiWMcgUYA4C", single: true) {
+                    BtaHL8fRtKFw8gDJULFYp
+                    WFqGH6dk8MpxfpHXh7awi_by_U7BBKiUwTgwiWMcgUYA4C @relation(table: "WFqGH6dk8MpxfpHXh7awi", fields: ["MHPB9NP84gr3eXBmBfbxh_id"], references: ["id"]) {
+                    ynWfqMzGjjVQYzbKx4rMX
+                    QYtpTcmJCe6zfCHWwpNjR
+                    MHPB9NP84gr3eXBmBfbxh_id @relation(table: "U7BBKiUwTgwiWMcgUYA4C", fields: ["id"], single: true, references: ["MHPB9NP84gr3eXBmBfbxh_id"]) {
+                        id
+                        __typename
+                    }
+                    id
+                    }
+                    id
+                }
+                }
+            "#,
+        )?;
+        let (statement, params, _tags) = gql2sql(
+            gqlast,
+            &Some(
+                json!({ "id_getU7BBKiUwTgwiWMcgUYA4CById": "piWkMrFFXgdQBBkzf84MD" })
             ),
             None,
         )?;
