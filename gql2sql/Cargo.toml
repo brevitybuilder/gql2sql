@@ -1,6 +1,6 @@
 [package]
 name = "gql2sql"
-version = "2.0.15"
+version = "2.0.16"
 edition = "2021"
 description = "GraphQL to SQL transpiler"
 license = "MIT OR Apache-2.0"
