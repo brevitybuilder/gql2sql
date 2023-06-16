@@ -3368,9 +3368,7 @@ mod tests {
         )?;
         let (statement, params, _tags) = gql2sql(
             gqlast,
-            &Some(
-                json!({ "id_getU7BBKiUwTgwiWMcgUYA4CById": "piWkMrFFXgdQBBkzf84MD" })
-            ),
+            &Some(json!({ "id_getU7BBKiUwTgwiWMcgUYA4CById": "piWkMrFFXgdQBBkzf84MD" })),
             None,
         )?;
         assert_snapshot!(statement.to_string());
