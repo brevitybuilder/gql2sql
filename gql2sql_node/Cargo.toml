@@ -2,7 +2,7 @@
 authors = ["LongYinan <lynweklm@gmail.com>"]
 edition = "2021"
 name = "gql2sql_node"
-version = "1.0.16"
+version = "1.0.17"
 publish = false
 
 [lib]
