@@ -109,9 +109,7 @@ fn get_op(op: &str) -> AnyResult<BinaryOperator> {
         "lte" | "less_than_or_equals" => BinaryOperator::LtEq,
         "gt" | "greater_than" => BinaryOperator::Gt,
         "gte" | "greater_than_or_equals" => BinaryOperator::GtEq,
-        _ => {
-            return Err(anyhow!("operator not supported: {}", op));
-        }
+        _ => BinaryOperator::Custom(op.to_owned()),
     };
     Ok(value)
 }
