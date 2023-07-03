@@ -14,6 +14,7 @@ use async_graphql_parser::{
 };
 use async_graphql_value::{Name, Value as GqlValue};
 use indexmap::IndexMap;
+use simd_json::StaticNode;
 use sqlparser::ast::{
     Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
     Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
@@ -26,7 +27,7 @@ use std::{
     iter::zip,
 };
 
-type JsonValue = serde_json::Value;
+type JsonValue = simd_json::OwnedValue;
 type AnyResult<T> = anyhow::Result<T>;
 
 fn get_value<'a>(value: &'a GqlValue, sql_vars: &'a IndexMap<Name, JsonValue>) -> AnyResult<Expr> {
@@ -1147,7 +1148,7 @@ fn value_to_string<'a>(
             .collect::<AnyResult<Vec<String>>>()?
             .join(","),
         GqlValue::Null => "null".to_owned(),
-        GqlValue::Object(obj) => serde_json::to_string(obj).unwrap(),
+        GqlValue::Object(obj) => simd_json::to_string(obj).unwrap(),
         GqlValue::Variable(name) => {
             if let Some(value) = sql_vars.get(name) {
                 value.to_string()
@@ -1506,9 +1507,9 @@ fn get_distinct(distinct: Vec<GqlValue>) -> Option<Vec<String>> {
 
 fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValue>) -> GqlValue {
     match value {
-        JsonValue::Null => GqlValue::Null,
-        JsonValue::Bool(b) => {
-            sql_vars.insert(name.clone(), JsonValue::Bool(*b));
+        JsonValue::Static(StaticNode::Null) => GqlValue::Null,
+        JsonValue::Static(s) => {
+            sql_vars.insert(name.clone(), JsonValue::Static(*s));
             GqlValue::Variable(name)
         }
         JsonValue::String(s) => {
@@ -1516,10 +1517,6 @@ fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValu
                 return GqlValue::Enum(Name::new(s.clone()));
             }
             sql_vars.insert(name.clone(), JsonValue::String(s.clone()));
-            GqlValue::Variable(name)
-        }
-        JsonValue::Number(n) => {
-            sql_vars.insert(name.clone(), JsonValue::Number(n.clone()));
             GqlValue::Variable(name)
         }
         JsonValue::Array(list) => {
@@ -1535,7 +1532,7 @@ fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValu
         }
         JsonValue::Object(o) => {
             let mut out = IndexMap::with_capacity(o.len());
-            for (k, v) in o {
+            for (k, v) in o.iter() {
                 let new_name = format!("{name}_{k}");
                 let name = Name::new(new_name);
                 let key = Name::new(k);
@@ -2603,7 +2600,7 @@ mod tests {
     use async_graphql_parser::parse_query;
 
     use insta::assert_snapshot;
-    use serde_json::json;
+    use simd_json::json;
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
@@ -3277,7 +3274,7 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
-        assert_snapshot!(serde_json::to_string_pretty(&params)?);
+        assert_snapshot!(simd_json::to_string_pretty(&params)?);
         Ok(())
     }
 
@@ -3340,7 +3337,7 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
-        assert_snapshot!(serde_json::to_string_pretty(&params)?);
+        assert_snapshot!(simd_json::to_string_pretty(&params)?);
         Ok(())
     }
     #[test]
@@ -3370,7 +3367,7 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
-        assert_snapshot!(serde_json::to_string_pretty(&params)?);
+        assert_snapshot!(simd_json::to_string_pretty(&params)?);
         Ok(())
     }
 }
