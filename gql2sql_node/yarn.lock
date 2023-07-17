@@ -210,11 +210,11 @@ __metadata:
   linkType: hard
 
 "@napi-rs/cli@npm:^2.15.2":
-  version: 2.15.2
-  resolution: "@napi-rs/cli@npm:2.15.2"
+  version: 2.16.2
+  resolution: "@napi-rs/cli@npm:2.16.2"
   bin:
     napi: scripts/index.js
-  checksum: dedcbd339f634e4a4c442febbfaee7c0fd907f3b8082c1f3ddba18b0e02ae2f0e4bff75688763669db5fb1a0f5ab26a7200cb6c01fe8825effd0a70a44bcbbc7
+  checksum: 98f2905fbc2dbd84417899b12917d1e3b7b02041f8f0ed90138eaf0461a883646c157bd6192c1f6bc8ced6f122b06186183b72d3833810c4df3d7904fe01fc6b
   languageName: node
   linkType: hard
 
