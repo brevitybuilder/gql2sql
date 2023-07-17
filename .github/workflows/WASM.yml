@@ -11,6 +11,9 @@ name: WASM
       - gql2sql-wasm/**
       - Cargo.lock
   pull_request: null
+defaults:
+  run:
+    working-directory: gql2sql-wasm
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
