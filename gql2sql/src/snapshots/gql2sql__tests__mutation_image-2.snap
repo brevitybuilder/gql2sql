@@ -1,13 +1,13 @@
 ---
 source: gql2sql/src/lib.rs
-expression: "serde_json::to_string_pretty(&params)?"
+expression: "simd_json::to_string_pretty(&params)?"
 ---
 [
   "ffj9ACLQqpzjyh8yNFeQ6",
+  "2023-06-06T19:41:47+00:00",
+  "DOGGY",
   "MYDOG",
-  1280,
   "https://assets.brevity.io/uploads/jwy1g8rs7bxr9ptkaf6sy/lp_image-1685987665741.png",
   588,
-  "2023-06-06T19:41:47+00:00",
-  "DOGGY"
+  1280
 ]

@@ -2,10 +2,10 @@ mod utils;
 
 use async_graphql_parser::parse_query;
 use gql2sql::gql2sql as gql2sql_rs;
-use simd_json::{OwnedValue as Value};
+use serde::{Deserialize, Serialize};
+use simd_json::OwnedValue as Value;
 use utils::set_panic_hook;
 use wasm_bindgen::prelude::*;
-use serde::{Serialize, Deserialize};
 
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
@@ -28,9 +28,14 @@ pub struct GqlResult {
 #[wasm_bindgen]
 pub fn gql2sql(mut args: String) -> Result<String, JsError> {
     set_panic_hook();
-    let Args { query, variables, operation_name } = unsafe { simd_json::from_str(&mut args)? };
+    let Args {
+        query,
+        variables,
+        operation_name,
+    } = unsafe { simd_json::from_str(&mut args)? };
     let ast = parse_query(query)?;
-    let (sql, params, tags) = gql2sql_rs(ast, &variables, operation_name).map_err(|e| JsError::new(&e.to_string()))?;
+    let (sql, params, tags) =
+        gql2sql_rs(ast, &variables, operation_name).map_err(|e| JsError::new(&e.to_string()))?;
     let result = GqlResult {
         sql: sql.to_string(),
         params,

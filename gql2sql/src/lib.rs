@@ -12,8 +12,7 @@ use async_graphql_parser::{
     },
     Positioned,
 };
-use async_graphql_value::{Name, Value as GqlValue};
-use indexmap::IndexMap;
+use async_graphql_value::{indexmap::IndexMap, Name, Value as GqlValue};
 use simd_json::StaticNode;
 use sqlparser::ast::{
     Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
@@ -30,14 +29,32 @@ use std::{
 type JsonValue = simd_json::OwnedValue;
 type AnyResult<T> = anyhow::Result<T>;
 
-fn get_value<'a>(value: &'a GqlValue, sql_vars: &'a IndexMap<Name, JsonValue>) -> AnyResult<Expr> {
+fn get_pg_type(value: &JsonValue) -> String {
+    match value {
+        JsonValue::Static(StaticNode::Null) => "".to_owned(),
+        JsonValue::Static(StaticNode::Bool(_)) => "::boolean".to_owned(),
+        JsonValue::Static(StaticNode::I64(_)) => "::integer".to_owned(),
+        JsonValue::Static(StaticNode::U64(_)) => "::integer".to_owned(),
+        JsonValue::Static(StaticNode::F64(_)) => "::number".to_owned(),
+        JsonValue::String(_) => "::text".to_owned(),
+        JsonValue::Array(_) => "::jsonb".to_owned(),
+        JsonValue::Object(_) => "::jsonb".to_owned(),
+    }
+}
+
+fn get_value<'a>(
+    value: &'a GqlValue,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
+) -> AnyResult<Expr> {
     match value {
         GqlValue::Variable(v) => {
-            let index = sql_vars
-                .get_index_of(v)
-                .map(|i| i + 1)
-                .ok_or(anyhow!("variable not found"))?;
-            Ok(Expr::Value(Value::Placeholder(format!("${index}"))))
+            let (index, _, val) = sql_vars.get_full(v).ok_or(anyhow!("variable not found"))?;
+            let pg_type = get_pg_type(val);
+            Ok(Expr::Value(Value::Placeholder(format!(
+                "${}{}",
+                index + 1,
+                pg_type
+            ))))
         }
         GqlValue::Null => Ok(Expr::Value(Value::Null)),
         GqlValue::String(s) => Ok(Expr::Value(Value::SingleQuotedString(s.clone()))),
@@ -119,7 +136,7 @@ fn get_expr<'a>(
     left: Expr,
     operator: &'a str,
     value: &'a GqlValue,
-    variables: &'a IndexMap<Name, JsonValue>,
+    variables: &'a mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<Option<Expr>> {
     let right_value = get_value(value, variables)?;
     match operator {
@@ -148,11 +165,12 @@ fn get_expr<'a>(
 
 fn get_string_or_variable(
     value: &GqlValue,
-    variables: &IndexMap<Name, JsonValue>,
+    variables: &mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<String> {
     match value {
         GqlValue::Variable(v) => {
             if let Some(JsonValue::String(s)) = variables.get(v) {
+                println!("found variable: {}, {}", s, v);
                 Ok(s.clone())
             } else {
                 Err(anyhow!("variable not found"))
@@ -165,7 +183,7 @@ fn get_string_or_variable(
 
 fn get_filter(
     args: &IndexMap<Name, GqlValue>,
-    variables: &IndexMap<Name, JsonValue>,
+    variables: &mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<Option<Expr>> {
     let field = args
         .get("field")
@@ -556,7 +574,7 @@ fn get_join<'a>(
     path: Option<&'a str>,
     name: &'a str,
     variables: &'a IndexMap<Name, GqlValue>,
-    sql_vars: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
     parent: &'a str,
     tags: &'a mut IndexMap<String, HashSet<Tag>>,
 ) -> AnyResult<Join> {
@@ -902,7 +920,7 @@ struct Merge {
 fn get_static<'a>(
     name: &'a str,
     directives: &Vec<Positioned<Directive>>,
-    sql_vars: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<Option<SelectItem>> {
     for p_directive in directives {
         let directive = &p_directive.node;
@@ -945,7 +963,7 @@ fn get_projection<'a>(
     relation: &'a str,
     path: Option<&'a str>,
     variables: &'a IndexMap<Name, GqlValue>,
-    sql_vars: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
     tags: &mut IndexMap<String, HashSet<Tag>>,
 ) -> AnyResult<(Vec<SelectItem>, Vec<Join>, Vec<Merge>)> {
     let mut projection = Vec::new();
@@ -1135,7 +1153,7 @@ fn get_projection<'a>(
 
 fn value_to_string<'a>(
     value: &'a GqlValue,
-    sql_vars: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<String> {
     let output = match value {
         GqlValue::String(s) => s.clone(),
@@ -1165,7 +1183,7 @@ fn value_to_string<'a>(
 
 fn get_relation<'a>(
     directives: &'a [Positioned<Directive>],
-    sql_vars: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<(
     String,
     Vec<String>,
@@ -1377,7 +1395,7 @@ fn get_filter_query(
 fn get_order<'a>(
     order: &IndexMap<Name, GqlValue>,
     variables: &'a IndexMap<Name, GqlValue>,
-    sql_vars: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<Vec<OrderByExpr>> {
     if order.contains_key("expr") && order.contains_key("dir") {
         let mut asc = None;
@@ -1546,7 +1564,7 @@ fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValu
 
 fn get_filter_key<'a>(
     args: &'a IndexMap<Name, GqlValue>,
-    variables: &'a IndexMap<Name, JsonValue>,
+    variables: &'a mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<Option<HashSet<Tag>>> {
     let mut tags = HashSet::new();
     let operator = args
@@ -1607,7 +1625,7 @@ fn flatten_variables(
 fn parse_args<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
     variables: &'a IndexMap<Name, GqlValue>,
-    sql_vars: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<(
     Option<Expr>,
     Option<Vec<String>>,
@@ -1739,7 +1757,7 @@ fn parse_args<'a>(
 fn get_mutation_columns<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
     variables: &'a IndexMap<Name, GqlValue>,
-    sql_vars: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
 ) -> AnyResult<(Vec<Ident>, Vec<Vec<Expr>>)> {
     let mut columns = vec![];
     let mut rows = vec![];
@@ -1795,7 +1813,7 @@ fn get_mutation_columns<'a>(
 fn get_mutation_assignments<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
     variables: &'a IndexMap<Name, GqlValue>,
-    sql_vars: &'a IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
     has_updated_at_directive: bool,
 ) -> AnyResult<(Option<Expr>, Vec<Assignment>)> {
     let mut selection = None;
@@ -2200,7 +2218,7 @@ pub fn gql2sql<'a>(
         }
     };
 
-    let (variables, sql_vars) = flatten_variables(variables, operation.variable_definitions);
+    let (variables, mut sql_vars) = flatten_variables(variables, operation.variable_definitions);
     let mut tags: IndexMap<String, HashSet<Tag>> = IndexMap::new();
 
     match operation.ty {
@@ -2212,7 +2230,7 @@ pub fn gql2sql<'a>(
                         let (name, key, is_aggregate, is_single, schema_name) =
                             parse_query_meta(field)?;
                         let (selection, distinct, distinct_order, order_by, mut first, after, keys) =
-                            parse_args(&field.arguments, &variables, &sql_vars)?;
+                            parse_args(&field.arguments, &variables, &mut sql_vars)?;
                         if is_single {
                             first = Some(Expr::Value(Value::Number("1".to_string(), false)));
                         }
@@ -2291,7 +2309,7 @@ pub fn gql2sql<'a>(
                                 name,
                                 Some(BASE),
                                 &variables,
-                                &sql_vars,
+                                &mut sql_vars,
                                 &mut tags,
                             )?;
                             let root_query = get_root_query(
@@ -2442,13 +2460,13 @@ pub fn gql2sql<'a>(
                         );
                         if is_insert {
                             let (columns, rows) =
-                                get_mutation_columns(&field.arguments, &variables, &sql_vars)?;
+                                get_mutation_columns(&field.arguments, &variables, &mut sql_vars)?;
                             let (projection, _, _) = get_projection(
                                 &field.selection_set.node.items,
                                 name,
                                 None,
                                 &variables,
-                                &sql_vars,
+                                &mut sql_vars,
                                 &mut tags,
                             )?;
                             let params = if sql_vars.is_empty() {
@@ -2498,13 +2516,13 @@ pub fn gql2sql<'a>(
                                 name,
                                 None,
                                 &variables,
-                                &sql_vars,
+                                &mut sql_vars,
                                 &mut tags,
                             )?;
                             let (selection, assignments) = get_mutation_assignments(
                                 &field.arguments,
                                 &variables,
-                                &sql_vars,
+                                &mut sql_vars,
                                 has_updated_at_directive,
                             )?;
                             let params = if sql_vars.is_empty() {
@@ -2541,13 +2559,13 @@ pub fn gql2sql<'a>(
                                 name,
                                 None,
                                 &variables,
-                                &sql_vars,
+                                &mut sql_vars,
                                 &mut tags,
                             )?;
                             let (selection, _) = get_mutation_assignments(
                                 &field.arguments,
                                 &variables,
-                                &sql_vars,
+                                &mut sql_vars,
                                 false,
                             )?;
                             let params = if sql_vars.is_empty() {
@@ -3368,6 +3386,67 @@ mod tests {
         )?;
         assert_snapshot!(statement.to_string());
         assert_snapshot!(simd_json::to_string_pretty(&params)?);
+        Ok(())
+    }
+    #[test]
+    fn nested_playground() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"
+            query BrevityQuery($id_getkREJRjTQ9NTjzJdqPYkzEById: ID, $order_getkREJRjTQ9NTjzJdqPYkzEList: [kREJRjTQ9NTjzJdqPYkzE_Order], $filter_getUserById: UserFilter!) {
+                getkREJRjTQ9NTjzJdqPYkzEById(id: $id_getkREJRjTQ9NTjzJdqPYkzEById) @meta(table: "kREJRjTQ9NTjzJdqPYkzE", single: true, display: "Get Convo by Id") {
+                    id
+                    created_at
+                    updated_at
+                    kFqpygT7a4AWzp6kBmRgB
+                    F8tUM8nfFJkcLzBHDPNVF_by_kREJRjTQ9NTjzJdqPYkzE @relation(table: "F8tUM8nfFJkcLzBHDPNVF", fields: ["mXnPdXVNw9iVxWEPEhYkR_id"], references: ["id"]) {
+                    UNrh6yHEAG346xA87Mpdt
+                    QUegRwDXj93Qg8LLbYmBi
+                    id
+                    created_at
+                    updated_at
+                    }
+                }
+                getkREJRjTQ9NTjzJdqPYkzEList(order: $order_getkREJRjTQ9NTjzJdqPYkzEList) @meta(table: "kREJRjTQ9NTjzJdqPYkzE", display: "Get List of Convo") {
+                    id
+                    created_at
+                    updated_at
+                    kFqpygT7a4AWzp6kBmRgB
+                    F8tUM8nfFJkcLzBHDPNVF_by_kREJRjTQ9NTjzJdqPYkzE @relation(table: "F8tUM8nfFJkcLzBHDPNVF", fields: ["mXnPdXVNw9iVxWEPEhYkR_id"], references: ["id"]) {
+                    UNrh6yHEAG346xA87Mpdt
+                    QUegRwDXj93Qg8LLbYmBi
+                    id
+                    created_at
+                    updated_at
+                    }
+                }
+                getUserById(filter: $filter_getUserById) @meta(table: "User", single: true, display: "Get User by Id") {
+                    id
+                    __typename
+                }
+            }
+            "#,
+        )?;
+        let (statement, params, _tags) = gql2sql(
+            gqlast,
+            &Some(json!({
+                "id_getkREJRjTQ9NTjzJdqPYkzEById": "asdas",
+                "order_getkREJRjTQ9NTjzJdqPYkzEList": [
+                    {
+                        "created_at": "ASC"
+                    }
+                ],
+                "filter_getUserById": {
+                    "field": "id",
+                    "operator": "eq",
+                    "value": "D7gQ6arDWgfULjxrgh6VA"
+                }
+            })),
+            None,
+        )?;
+        println!("{}", statement.to_string());
+        println!("{}", simd_json::to_string_pretty(&params)?);
+        // assert_snapshot!(statement.to_string());
+        // assert_snapshot!(simd_json::to_string_pretty(&params)?);
         Ok(())
     }
 }

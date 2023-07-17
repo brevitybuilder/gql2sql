@@ -30,8 +30,8 @@ test('sync function from native code', (t) => {
       }
     }
   `
-  const result = gql2Sql(fixture, {})
-  t.snapshot(result)
+  const result = gql2Sql(JSON.stringify({ query: fixture, variables: {} }))
+  t.snapshot(JSON.parse(result))
 })
 
 test('complex query', (t) => {
@@ -230,10 +230,15 @@ test('complex query', (t) => {
       }
     }
   `
-  const result = gql2Sql(fixture, {
-    orgId: '123',
-    appId: '456',
-    branch: 'master',
-  })
-  t.snapshot(result)
+  const result = gql2Sql(
+    JSON.stringify({
+      query: fixture,
+      variables: {
+        orgId: '123',
+        appId: '456',
+        branch: 'master',
+      },
+    }),
+  )
+  t.snapshot(JSON.parse(result))
 })
