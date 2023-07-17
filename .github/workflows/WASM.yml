@@ -1,4 +1,4 @@
-name: CI
+name: WASM
 on: [push, pull_request]
 
 jobs:
@@ -11,7 +11,7 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Test
-        run: cargo test
+        run: RUSTFLAGS='-C target-feature=+simd128' cargo test
 
       - name: Build
         run: RUSTFLAGS='-C target-feature=+simd128' wasm-pack build --release --target web --scope brevity-builder
