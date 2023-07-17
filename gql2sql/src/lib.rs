@@ -1,5 +1,7 @@
 mod consts;
 
+use regex::Regex;
+use lazy_static::lazy_static;
 use crate::consts::{
     BASE, DATA_LABEL, JSONB_BUILD_ARRAY, JSONB_BUILD_OBJECT, JSON_AGG, JSON_BUILD_OBJECT, ON,
     QUOTE_CHAR, ROOT_LABEL, TO_JSON, TO_JSONB,
@@ -29,6 +31,30 @@ use std::{
 type JsonValue = simd_json::OwnedValue;
 type AnyResult<T> = anyhow::Result<T>;
 
+pub fn detect_date(text: &str) -> Option<String> {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(
+            r"^((?:(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2}(?:\.\d+)?))(Z|[\+-]\d{2}:\d{2})?)$"
+        )
+        .expect("Failed to compile regex");
+    }
+    if RE.is_match(text) {
+        if text.contains('Z')
+            || text.contains('+')
+            || text.chars().nth_back(5).unwrap_or('T') == '-'
+        {
+            return Some(text.to_owned());
+        } else if text.contains('.') {
+            let date_str = text.to_owned() + "Z";
+            return Some(date_str);
+        } else {
+            let date_str = text.to_owned() + ".000Z";
+            return Some(date_str);
+        }
+    }
+    None
+}
+
 fn get_pg_type(value: &JsonValue) -> String {
     match value {
         JsonValue::Static(StaticNode::Null) => "".to_owned(),
@@ -36,7 +62,13 @@ fn get_pg_type(value: &JsonValue) -> String {
         JsonValue::Static(StaticNode::I64(_)) => "::integer".to_owned(),
         JsonValue::Static(StaticNode::U64(_)) => "::integer".to_owned(),
         JsonValue::Static(StaticNode::F64(_)) => "::number".to_owned(),
-        JsonValue::String(_) => "::text".to_owned(),
+        JsonValue::String(s) => {
+            if let Some(_) = detect_date(s) {
+                return "::timestamptz".to_owned();
+            } else {
+                return "::text".to_owned();
+            };
+        },
         JsonValue::Array(_) => "::jsonb".to_owned(),
         JsonValue::Object(_) => "::jsonb".to_owned(),
     }

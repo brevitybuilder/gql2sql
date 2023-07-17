@@ -2,4 +2,4 @@
 source: gql2sql/src/lib.rs
 expression: statement.to_string()
 ---
-WITH "result" AS (UPDATE "WFqGH6dk8MpxfpHXh7awi" SET "updated_at" = $2::text, "ynWfqMzGjjVQYzbKx4rMX" = $3::text, "QYtpTcmJCe6zfCHWwpNjR" = $4::text, "a8heQgUMyFync44JACwKA" = jsonb_build_object('src', $5::text, 'width', $6::integer, 'height', $7::integer) WHERE "id" = $1::text RETURNING "id") SELECT json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data"
+WITH "result" AS (UPDATE "WFqGH6dk8MpxfpHXh7awi" SET "updated_at" = $2::timestamptz, "ynWfqMzGjjVQYzbKx4rMX" = $3::text, "QYtpTcmJCe6zfCHWwpNjR" = $4::text, "a8heQgUMyFync44JACwKA" = jsonb_build_object('src', $5::text, 'width', $6::integer, 'height', $7::integer) WHERE "id" = $1::text RETURNING "id") SELECT json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data"
