@@ -9,7 +9,7 @@ function parsejs(query: string) {
 
 const query = `
 query App {
-    App(filter: { id: { eq: "345810043118026832" } }, order: { name: ASC }) {
+    App(filter: { field: "id", operator: "eq", value: "345810043118026832" }, order: { name: ASC }) {
         id
         components @relation(table: "Component", field: ["appId"], references: ["id"]) {
             id
@@ -23,7 +23,7 @@ query App {
             }
         }
     }
-    Component_aggregate(filter: { appId: { eq: "345810043118026832" } }) {
+    Component_aggregate(filter: { field: "appId", operator: "eq", value: "345810043118026832" }) {
       count
       min {
         createdAt
@@ -36,7 +36,8 @@ async function run() {
   await b.suite(
     'graphql',
     b.add('Native parse and convert and print', () => {
-      const _result = gql2Sql(query)
+      const result = gql2Sql(JSON.stringify({ query }))
+      JSON.parse(result)
     }),
     b.add('JavaScript parse and print', () => {
       const ast = parsejs(query)

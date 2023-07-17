@@ -1,0 +1,24 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Test
+        run: cargo test
+
+      - name: Build
+        run: RUSTFLAGS='-C target-feature=+simd128' wasm-pack build --release --target web --scope brevity-builder
+
+      - name: Publish
+        run: |
+          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+          cd pkg
+          npm publish --access public
+
