@@ -1,6 +1,19 @@
 name: WASM
-on: [push, pull_request]
-
+'on':
+  push:
+    branches:
+      - main
+    tags-ignore:
+      - '**'
+    paths:
+      - .github/workflows/CI.yml
+      - gql2sql/**
+      - gql2sql-wasm/**
+      - Cargo.lock
+  pull_request: null
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-latest
