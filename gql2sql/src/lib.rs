@@ -3065,26 +3065,6 @@ mod tests {
     }
 
     #[test]
-    fn query_ast() -> Result<(), anyhow::Error> {
-        let sql = r#"
-            SELECT
-            DISTINCT ON (column1)
-            column2
-            FROM
-            table_name
-            WHERE
-            column1 = 'value'
-            AND (column2 = 'value' OR column3 = 'value')
-            ORDER BY
-            column1,
-            column2;
-        "#;
-        let dialect = PostgreSqlDialect {};
-        let _sqlast = Parser::parse_sql(&dialect, sql)?;
-        Ok(())
-    }
-
-    #[test]
     fn query_sub_agg() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"query GetData {
