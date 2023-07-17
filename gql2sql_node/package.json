@@ -97,7 +97,7 @@
     "singleQuote": true,
     "arrowParens": "always"
   },
-  "packageManager": "yarn@3.5.0",
+  "packageManager": "yarn@3.6.1",
   "optionalDependencies": {
     "@brevity-builder/gql2sql-darwin-arm64": "2.0.15",
     "@brevity-builder/gql2sql-darwin-x64": "1.0.9",
