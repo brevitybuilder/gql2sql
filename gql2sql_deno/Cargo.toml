@@ -1,6 +1,6 @@
 [package]
 name = "gql2sql_deno"
-version = "1.0.17"
+version = "2.0.0"
 edition = "2021"
 publish = false
 
