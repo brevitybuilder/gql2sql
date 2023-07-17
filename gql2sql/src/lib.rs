@@ -1,7 +1,5 @@
 mod consts;
 
-use regex::Regex;
-use lazy_static::lazy_static;
 use crate::consts::{
     BASE, DATA_LABEL, JSONB_BUILD_ARRAY, JSONB_BUILD_OBJECT, JSON_AGG, JSON_BUILD_OBJECT, ON,
     QUOTE_CHAR, ROOT_LABEL, TO_JSON, TO_JSONB,
@@ -15,6 +13,8 @@ use async_graphql_parser::{
     Positioned,
 };
 use async_graphql_value::{indexmap::IndexMap, Name, Value as GqlValue};
+use lazy_static::lazy_static;
+use regex::Regex;
 use simd_json::StaticNode;
 use sqlparser::ast::{
     Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
@@ -68,7 +68,7 @@ fn get_pg_type(value: &JsonValue) -> String {
             } else {
                 return "::text".to_owned();
             };
-        },
+        }
         JsonValue::Array(_) => "::jsonb".to_owned(),
         JsonValue::Object(_) => "::jsonb".to_owned(),
     }
