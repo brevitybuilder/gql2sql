@@ -1613,47 +1613,6 @@ fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValu
     }
 }
 
-fn get_filter_key<'a>(
-    args: &'a IndexMap<Name, GqlValue>,
-    variables: &'a mut IndexMap<Name, JsonValue>,
-) -> AnyResult<Option<IndexSet<Tag>>> {
-    let mut tags = IndexSet::new();
-    let operator = args
-        .get("operator")
-        .map(|v| get_string_or_variable(v, variables))
-        .ok_or(anyhow!("operator not found"))??;
-    if operator == "eq" {
-        let field = args
-            .get("field")
-            .map(|v| get_string_or_variable(v, variables))
-            .ok_or(anyhow!("field not found"))??;
-        if let Some(value) = args.get("value") {
-            if let Ok(value) = get_string_or_variable(value, variables) {
-                tags.insert(Tag { key: field, value });
-            }
-        }
-    }
-    if args.contains_key("children") {
-        if let Some(GqlValue::List(children)) = args.get("children") {
-            children
-                .iter()
-                .map(|v| match v {
-                    GqlValue::Object(o) => get_filter_key(o, variables),
-                    _ => Ok(None),
-                })
-                .filter_map(|v| v.ok().flatten())
-                .for_each(|v| {
-                    tags.extend(v);
-                });
-        }
-    }
-    if !tags.is_empty() {
-        Ok(Some(tags))
-    } else {
-        Ok(None)
-    }
-}
-
 fn flatten_variables(
     variables: &Option<JsonValue>,
     definitions: Vec<Positioned<VariableDefinition>>,
