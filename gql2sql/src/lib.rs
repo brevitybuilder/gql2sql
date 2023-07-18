@@ -1062,8 +1062,7 @@ fn get_projection<'a>(
                         }
                     }
                 } else {
-                    if let Some(value) =
-                        get_static(&field.name.node, &field.directives, sql_vars)?
+                    if let Some(value) = get_static(&field.name.node, &field.directives, sql_vars)?
                     {
                         projection.push(value);
                         continue;
