@@ -1,0 +1,8 @@
+---
+source: gql2sql/src/lib.rs
+expression: "simd_json::to_string_pretty(&params)?"
+---
+[
+  "asdas",
+  "D7gQ6arDWgfULjxrgh6VA"
+]

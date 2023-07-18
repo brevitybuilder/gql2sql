@@ -12,7 +12,10 @@ use async_graphql_parser::{
     },
     Positioned,
 };
-use async_graphql_value::{indexmap::IndexMap, Name, Value as GqlValue};
+use async_graphql_value::{
+    indexmap::{IndexMap, IndexSet},
+    Name, Value as GqlValue,
+};
 use lazy_static::lazy_static;
 use regex::Regex;
 use simd_json::StaticNode;
@@ -23,7 +26,6 @@ use sqlparser::ast::{
     WildcardAdditionalOptions, With,
 };
 use std::{
-    collections::HashSet,
     fmt::{Debug, Formatter},
     iter::zip,
 };
@@ -55,38 +57,22 @@ pub fn detect_date(text: &str) -> Option<String> {
     None
 }
 
-fn get_pg_type(value: &JsonValue) -> String {
-    match value {
-        JsonValue::Static(StaticNode::Null) => "".to_owned(),
-        JsonValue::Static(StaticNode::Bool(_)) => "::boolean".to_owned(),
-        JsonValue::Static(StaticNode::I64(_)) => "::integer".to_owned(),
-        JsonValue::Static(StaticNode::U64(_)) => "::integer".to_owned(),
-        JsonValue::Static(StaticNode::F64(_)) => "::number".to_owned(),
-        JsonValue::String(s) => {
-            if let Some(_) = detect_date(s) {
-                return "::timestamptz".to_owned();
-            } else {
-                return "::text".to_owned();
-            };
-        }
-        JsonValue::Array(_) => "::jsonb".to_owned(),
-        JsonValue::Object(_) => "::jsonb".to_owned(),
-    }
-}
-
 fn get_value<'a>(
     value: &'a GqlValue,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<Expr> {
     match value {
         GqlValue::Variable(v) => {
-            let (index, _, val) = sql_vars.get_full(v).ok_or(anyhow!("variable not found"))?;
-            let pg_type = get_pg_type(val);
-            Ok(Expr::Value(Value::Placeholder(format!(
-                "${}{}",
-                index + 1,
-                pg_type
-            ))))
+            if sql_vars.contains_key(v) {
+                let (i, _) = final_vars.insert_full(v.clone());
+                return Ok(Expr::Value(Value::Placeholder(format!("${}", i + 1,))));
+            }
+            Err(anyhow!(
+                "variable {} not found in sql_vars {:?}",
+                v,
+                sql_vars.keys().collect::<Vec<_>>()
+            ))
         }
         GqlValue::Null => Ok(Expr::Value(Value::Null)),
         GqlValue::String(s) => Ok(Expr::Value(Value::SingleQuotedString(s.clone()))),
@@ -99,7 +85,7 @@ fn get_value<'a>(
             args: l
                 .into_iter()
                 .map(|v| {
-                    let value = get_value(v, sql_vars).unwrap();
+                    let value = get_value(v, sql_vars, final_vars).unwrap();
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(value))
                 })
                 .collect::<Vec<FunctionArg>>(),
@@ -122,7 +108,7 @@ fn get_value<'a>(
                 args: o
                     .into_iter()
                     .flat_map(|(k, v)| {
-                        let value = get_value(v, sql_vars).unwrap();
+                        let value = get_value(v, sql_vars, final_vars).unwrap();
                         vec![
                             FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
                                 Value::SingleQuotedString(k.to_string()),
@@ -168,9 +154,10 @@ fn get_expr<'a>(
     left: Expr,
     operator: &'a str,
     value: &'a GqlValue,
-    variables: &'a mut IndexMap<Name, JsonValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<Option<Expr>> {
-    let right_value = get_value(value, variables)?;
+    let right_value = get_value(value, sql_vars, final_vars)?;
     match operator {
         "like" => Ok(Some(Expr::Like {
             negated: false,
@@ -215,22 +202,32 @@ fn get_string_or_variable(
 
 fn get_filter(
     args: &IndexMap<Name, GqlValue>,
-    variables: &mut IndexMap<Name, JsonValue>,
-) -> AnyResult<Option<Expr>> {
+    sql_vars: &mut IndexMap<Name, JsonValue>,
+    final_vars: &mut IndexSet<Name>,
+) -> AnyResult<(Option<Expr>, Option<IndexSet<Tag>>)> {
+    let mut tags = IndexSet::new();
     let field = args
         .get("field")
-        .map(|v| get_string_or_variable(v, variables))
+        .map(|v| get_string_or_variable(v, sql_vars))
         .ok_or(anyhow!("field not found"))??;
     let operator = args
         .get("operator")
-        .map(|v| get_string_or_variable(v, variables))
+        .map(|v| get_string_or_variable(v, sql_vars))
         .ok_or(anyhow!("operator not found"))??;
     if let Some(value) = args.get("value") {
+        if operator == "eq" {
+            if let Ok(value) = get_string_or_variable(value, sql_vars) {
+                tags.insert(Tag {
+                    key: field.clone(),
+                    value,
+                });
+            }
+        }
         let left = Expr::Identifier(Ident {
             value: field,
             quote_style: Some(QUOTE_CHAR),
         });
-        let primary = get_expr(left, operator.as_str(), value, variables)?;
+        let primary = get_expr(left, operator.as_str(), value, sql_vars, final_vars)?;
         if args.contains_key("children") {
             if let Some(GqlValue::List(children)) = args.get("children") {
                 let op = if let Some(GqlValue::String(op)) = args.get("logicalOperator") {
@@ -241,34 +238,48 @@ fn get_filter(
                 if let Some(filters) = children
                     .iter()
                     .map(|v| match v {
-                        GqlValue::Object(o) => get_filter(o, variables),
-                        _ => Ok(None),
+                        GqlValue::Object(o) => {
+                            if let Ok((item, new_tags)) = get_filter(o, sql_vars, final_vars) {
+                                if let Some(new_tags) = new_tags {
+                                    tags.extend(new_tags);
+                                }
+                                return item;
+                            }
+                            None
+                        }
+                        _ => None,
                     })
-                    .fold(Ok(primary), |acc: AnyResult<Option<Expr>>, item| {
-                        if let Ok(Some(acc)) = acc {
-                            let item = item?;
+                    .fold(primary, |acc: Option<Expr>, item| {
+                        if let Some(acc) = acc {
+                            let item = item.unwrap_or_else(|| Expr::Value(Value::Boolean(true)));
                             let expr = Expr::BinaryOp {
                                 left: Box::new(acc),
                                 op: op.clone(),
-                                right: Box::new(item.ok_or(anyhow!("invalid filter"))?),
+                                right: Box::new(item),
                             };
-                            Ok(Some(expr))
-                        } else if let Ok(None) = acc {
-                            Ok(None)
+                            Some(expr)
                         } else {
-                            Err(anyhow!("invalid filter"))
+                            None
                         }
-                    })?
+                    })
                 {
-                    return Ok(Some(Expr::Nested(Box::new(filters))));
+                    if !tags.is_empty() {
+                        return Ok((Some(Expr::Nested(Box::new(filters))), Some(tags)));
+                    } else {
+                        return Ok((Some(Expr::Nested(Box::new(filters))), None));
+                    }
                 }
-                return Ok(None);
+                return Ok((None, None));
             }
         } else {
-            return Ok(primary);
+            if !tags.is_empty() {
+                return Ok((primary, Some(tags)));
+            } else {
+                return Ok((primary, None));
+            }
         }
     }
-    Ok(None)
+    Ok((None, None))
 }
 
 fn get_agg_query(
@@ -607,20 +618,21 @@ fn get_join<'a>(
     name: &'a str,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a mut IndexSet<Name>,
     parent: &'a str,
-    tags: &'a mut IndexMap<String, HashSet<Tag>>,
+    tags: &'a mut IndexMap<String, IndexSet<Tag>>,
 ) -> AnyResult<Join> {
     let (selection, distinct, distinct_order, order_by, mut first, after, keys) =
-        parse_args(arguments, variables, sql_vars)?;
+        parse_args(arguments, variables, sql_vars, final_vars)?;
     let (relation, fks, pks, is_single, is_aggregate, is_many, schema_name) =
-        get_relation(directives, sql_vars)?;
+        get_relation(directives, sql_vars, final_vars)?;
     if is_single {
         first = Some(Expr::Value(Value::Number("1".to_string(), false)));
     }
     if let Some(keys) = keys {
         tags.insert(name.to_owned(), keys.into_iter().collect());
     } else {
-        tags.insert(name.to_owned(), HashSet::new());
+        tags.insert(name.to_owned(), IndexSet::new());
     };
 
     let table_name = schema_name.as_ref().map_or_else(
@@ -671,7 +683,7 @@ fn get_join<'a>(
                             },
                         ]),
                     ));
-                    let mut new_tags = HashSet::new();
+                    let mut new_tags = IndexSet::new();
                     if let Some(table_tags) = tags.get(parent) {
                         for tag in table_tags {
                             if tag.key == pk {
@@ -894,6 +906,7 @@ fn get_join<'a>(
             Some(&sub_path),
             variables,
             sql_vars,
+            final_vars,
             tags,
         )?;
         additional_select_items.extend(sub_projection);
@@ -996,7 +1009,8 @@ fn get_projection<'a>(
     path: Option<&'a str>,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
-    tags: &mut IndexMap<String, HashSet<Tag>>,
+    final_vars: &'a mut IndexSet<Name>,
+    tags: &mut IndexMap<String, IndexSet<Tag>>,
 ) -> AnyResult<(Vec<SelectItem>, Vec<Join>, Vec<Merge>)> {
     let mut projection = Vec::new();
     let mut joins = Vec::new();
@@ -1016,6 +1030,7 @@ fn get_projection<'a>(
                         &name,
                         variables,
                         sql_vars,
+                        final_vars,
                         relation,
                         tags,
                     )?;
@@ -1047,7 +1062,8 @@ fn get_projection<'a>(
                         }
                     }
                 } else {
-                    if let Some(value) = get_static(&field.name.node, &field.directives, sql_vars)?
+                    if let Some(value) =
+                        get_static(&field.name.node, &field.directives, sql_vars)?
                     {
                         projection.push(value);
                         continue;
@@ -1128,7 +1144,7 @@ fn get_projection<'a>(
                         .iter()
                         .find(|d| d.node.name.node.as_ref() == "args");
                     let (relation, _fks, _pks, _is_single, _is_aggregate, _is_many, schema_name) =
-                        get_relation(&frag.directives, sql_vars)?;
+                        get_relation(&frag.directives, sql_vars, final_vars)?;
                     let join = get_join(
                         args.map_or(&vec![], |dir| &dir.node.arguments),
                         &frag.directives,
@@ -1137,6 +1153,7 @@ fn get_projection<'a>(
                         name,
                         variables,
                         sql_vars,
+                        final_vars,
                         &relation,
                         tags,
                     )?;
@@ -1186,6 +1203,7 @@ fn get_projection<'a>(
 fn value_to_string<'a>(
     value: &'a GqlValue,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a IndexSet<Name>,
 ) -> AnyResult<String> {
     let output = match value {
         GqlValue::String(s) => s.clone(),
@@ -1194,7 +1212,7 @@ fn value_to_string<'a>(
         GqlValue::Enum(e) => e.to_string(),
         GqlValue::List(l) => l
             .iter()
-            .map(|l| value_to_string(l, sql_vars))
+            .map(|l| value_to_string(l, sql_vars, final_vars))
             .collect::<AnyResult<Vec<String>>>()?
             .join(","),
         GqlValue::Null => "null".to_owned(),
@@ -1216,6 +1234,7 @@ fn value_to_string<'a>(
 fn get_relation<'a>(
     directives: &'a [Positioned<Directive>],
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<(
     String,
     Vec<String>,
@@ -1243,14 +1262,14 @@ fn get_relation<'a>(
                 let name = name.node.as_str();
                 let value = &value.node;
                 match name {
-                    "table" => relation = value_to_string(value, sql_vars)?,
-                    "schema" => schema_name = Some(value_to_string(value, sql_vars)?),
+                    "table" => relation = value_to_string(value, sql_vars, final_vars)?,
+                    "schema" => schema_name = Some(value_to_string(value, sql_vars, final_vars)?),
                     "field" | "fields" => {
                         fk = match &value {
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(|l| value_to_string(l, sql_vars))
+                                .map(|l| value_to_string(l, sql_vars, final_vars))
                                 .collect::<AnyResult<Vec<String>>>()?,
                             _ => {
                                 return Err(anyhow!("Invalid value for field in relation"));
@@ -1262,7 +1281,7 @@ fn get_relation<'a>(
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(|l| value_to_string(l, sql_vars))
+                                .map(|l| value_to_string(l, sql_vars, final_vars))
                                 .collect::<AnyResult<Vec<String>>>()?,
                             _ => {
                                 return Err(anyhow!("Invalid value for reference in relation"));
@@ -1428,6 +1447,7 @@ fn get_order<'a>(
     order: &IndexMap<Name, GqlValue>,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<Vec<OrderByExpr>> {
     if order.contains_key("expr") && order.contains_key("dir") {
         let mut asc = None;
@@ -1463,7 +1483,7 @@ fn get_order<'a>(
                     }]);
                 }
                 GqlValue::Object(args) => {
-                    if let Some(expression) = get_filter(args, sql_vars)? {
+                    if let (Some(expression), _) = get_filter(args, sql_vars, final_vars)? {
                         return Ok(vec![OrderByExpr {
                             expr: expression,
                             asc,
@@ -1597,8 +1617,8 @@ fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValu
 fn get_filter_key<'a>(
     args: &'a IndexMap<Name, GqlValue>,
     variables: &'a mut IndexMap<Name, JsonValue>,
-) -> AnyResult<Option<HashSet<Tag>>> {
-    let mut tags = HashSet::new();
+) -> AnyResult<Option<IndexSet<Tag>>> {
+    let mut tags = IndexSet::new();
     let operator = args
         .get("operator")
         .map(|v| get_string_or_variable(v, variables))
@@ -1658,6 +1678,7 @@ fn parse_args<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<(
     Option<Expr>,
     Option<Vec<String>>,
@@ -1665,7 +1686,7 @@ fn parse_args<'a>(
     Vec<OrderByExpr>,
     Option<Expr>,
     Option<Offset>,
-    Option<HashSet<Tag>>,
+    Option<IndexSet<Tag>>,
 )> {
     let mut selection = None;
     let mut order_by = vec![];
@@ -1696,11 +1717,12 @@ fn parse_args<'a>(
                     "eq",
                     &value,
                     sql_vars,
+                    final_vars,
                 )?;
             }
             ("filter" | "where", GqlValue::Object(filter)) => {
-                keys = get_filter_key(&filter, sql_vars)?;
-                selection = get_filter(&filter, sql_vars)?;
+                // keys = get_filter_key(&filter, sql_vars)?;
+                (selection, keys) = get_filter(&filter, sql_vars, final_vars)?;
             }
             ("distinct", GqlValue::Object(d)) => {
                 if let Some(GqlValue::List(list)) = d.get("on") {
@@ -1708,7 +1730,7 @@ fn parse_args<'a>(
                 }
                 match d.get("order") {
                     Some(GqlValue::Object(order)) => {
-                        distinct_order = Some(get_order(order, variables, sql_vars)?);
+                        distinct_order = Some(get_order(order, variables, sql_vars, final_vars)?);
                     }
                     Some(GqlValue::List(list)) => {
                         let order = list
@@ -1717,7 +1739,7 @@ fn parse_args<'a>(
                                 GqlValue::Object(o) => Some(o),
                                 _ => None,
                             })
-                            .map(|o| get_order(o, variables, sql_vars))
+                            .map(|o| get_order(o, variables, sql_vars, final_vars))
                             .collect::<AnyResult<Vec<Vec<OrderByExpr>>>>()?;
                         distinct_order = Some(order.into_iter().flatten().collect());
                     }
@@ -1727,7 +1749,7 @@ fn parse_args<'a>(
                 }
             }
             ("order", GqlValue::Object(order)) => {
-                order_by = get_order(&order, variables, sql_vars)?;
+                order_by = get_order(&order, variables, sql_vars, final_vars)?;
             }
             ("order", GqlValue::List(list)) => {
                 let items = list
@@ -1736,7 +1758,7 @@ fn parse_args<'a>(
                         GqlValue::Object(o) => Some(o),
                         _ => None,
                     })
-                    .map(|o| get_order(o, variables, sql_vars))
+                    .map(|o| get_order(o, variables, sql_vars, final_vars))
                     .collect::<AnyResult<Vec<Vec<OrderByExpr>>>>()?;
                 order_by.append(
                     items
@@ -1747,7 +1769,7 @@ fn parse_args<'a>(
                 );
             }
             ("first" | "limit", GqlValue::Variable(name)) => {
-                first = Some(get_value(&GqlValue::Variable(name), sql_vars)?);
+                first = Some(get_value(&GqlValue::Variable(name), sql_vars, final_vars)?);
             }
             ("first" | "limit", GqlValue::Number(count)) => {
                 first = Some(Expr::Value(Value::Number(
@@ -1757,7 +1779,7 @@ fn parse_args<'a>(
             }
             ("after" | "offset", GqlValue::Variable(name)) => {
                 after = Some(Offset {
-                    value: get_value(&GqlValue::Variable(name), sql_vars)?,
+                    value: get_value(&GqlValue::Variable(name), sql_vars, final_vars)?,
                     rows: OffsetRows::None,
                 });
             }
@@ -1790,6 +1812,7 @@ fn get_mutation_columns<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<(Vec<Ident>, Vec<Vec<Expr>>)> {
     let mut columns = vec![];
     let mut rows = vec![];
@@ -1812,7 +1835,7 @@ fn get_mutation_columns<'a>(
                         value: key.to_string(),
                         quote_style: Some(QUOTE_CHAR),
                     });
-                    row.push(get_value(value, sql_vars)?);
+                    row.push(get_value(value, sql_vars, final_vars)?);
                 }
                 rows.push(row);
             }
@@ -1830,7 +1853,7 @@ fn get_mutation_columns<'a>(
                                     quote_style: Some(QUOTE_CHAR),
                                 });
                             }
-                            row.push(get_value(value, sql_vars)?);
+                            row.push(get_value(value, sql_vars, final_vars)?);
                         }
                     }
                     rows.push(row);
@@ -1846,6 +1869,7 @@ fn get_mutation_assignments<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a mut IndexSet<Name>,
     has_updated_at_directive: bool,
 ) -> AnyResult<(Option<Expr>, Vec<Assignment>)> {
     let mut selection = None;
@@ -1890,10 +1914,11 @@ fn get_mutation_assignments<'a>(
                     "eq",
                     value,
                     sql_vars,
+                    final_vars,
                 )?;
             }
             ("filter" | "where", GqlValue::Object(filter)) => {
-                selection = get_filter(filter, sql_vars)?;
+                (selection, _) = get_filter(filter, sql_vars, final_vars)?;
             }
             ("set", GqlValue::Object(data)) => {
                 for (key, value) in data.iter() {
@@ -1902,7 +1927,7 @@ fn get_mutation_assignments<'a>(
                             value: key.to_string(),
                             quote_style: Some(QUOTE_CHAR),
                         }],
-                        value: get_value(value, sql_vars)?,
+                        value: get_value(value, sql_vars, final_vars)?,
                     });
                 }
             }
@@ -1917,7 +1942,7 @@ fn get_mutation_assignments<'a>(
                         value: Expr::BinaryOp {
                             left: Box::new(Expr::Identifier(column_ident)),
                             op: BinaryOperator::Plus,
-                            right: Box::new(get_value(value, sql_vars)?),
+                            right: Box::new(get_value(value, sql_vars, final_vars)?),
                         },
                     });
                 }
@@ -2251,7 +2276,8 @@ pub fn gql2sql<'a>(
     };
 
     let (variables, mut sql_vars) = flatten_variables(variables, operation.variable_definitions);
-    let mut tags: IndexMap<String, HashSet<Tag>> = IndexMap::new();
+    let mut tags: IndexMap<String, IndexSet<Tag>> = IndexMap::new();
+    let mut final_vars: IndexSet<Name> = IndexSet::new();
 
     match operation.ty {
         OperationType::Query => {
@@ -2262,14 +2288,19 @@ pub fn gql2sql<'a>(
                         let (name, key, is_aggregate, is_single, schema_name) =
                             parse_query_meta(field)?;
                         let (selection, distinct, distinct_order, order_by, mut first, after, keys) =
-                            parse_args(&field.arguments, &variables, &mut sql_vars)?;
+                            parse_args(
+                                &field.arguments,
+                                &variables,
+                                &mut sql_vars,
+                                &mut final_vars,
+                            )?;
                         if is_single {
                             first = Some(Expr::Value(Value::Number("1".to_string(), false)));
                         }
                         if let Some(keys) = keys {
                             tags.insert(name.to_string(), keys.into_iter().collect());
                         } else {
-                            tags.insert(name.to_string(), HashSet::new());
+                            tags.insert(name.to_string(), IndexSet::new());
                         };
                         let table_name = schema_name.map_or_else(
                             || {
@@ -2342,6 +2373,7 @@ pub fn gql2sql<'a>(
                                 Some(BASE),
                                 &variables,
                                 &mut sql_vars,
+                                &mut final_vars,
                                 &mut tags,
                             )?;
                             let root_query = get_root_query(
@@ -2439,10 +2471,15 @@ pub fn gql2sql<'a>(
                 fetch: None,
                 locks: vec![],
             }));
-            let params = if sql_vars.is_empty() {
+            let params = if final_vars.is_empty() {
                 None
             } else {
-                Some(sql_vars.into_values().collect())
+                Some(
+                    final_vars
+                        .into_iter()
+                        .filter_map(|n| sql_vars.remove(&n))
+                        .collect(),
+                )
             };
             if tags.is_empty() {
                 return Ok((statement, params, None));
@@ -2491,20 +2528,30 @@ pub fn gql2sql<'a>(
                             },
                         );
                         if is_insert {
-                            let (columns, rows) =
-                                get_mutation_columns(&field.arguments, &variables, &mut sql_vars)?;
+                            let (columns, rows) = get_mutation_columns(
+                                &field.arguments,
+                                &variables,
+                                &mut sql_vars,
+                                &mut final_vars,
+                            )?;
                             let (projection, _, _) = get_projection(
                                 &field.selection_set.node.items,
                                 name,
                                 None,
                                 &variables,
                                 &mut sql_vars,
+                                &mut final_vars,
                                 &mut tags,
                             )?;
-                            let params = if sql_vars.is_empty() {
+                            let params = if final_vars.is_empty() {
                                 None
                             } else {
-                                Some(sql_vars.into_values().collect())
+                                Some(
+                                    final_vars
+                                        .into_iter()
+                                        .filter_map(|n| sql_vars.remove(&n))
+                                        .collect(),
+                                )
                             };
                             return Ok((
                                 wrap_mutation(
@@ -2549,18 +2596,25 @@ pub fn gql2sql<'a>(
                                 None,
                                 &variables,
                                 &mut sql_vars,
+                                &mut final_vars,
                                 &mut tags,
                             )?;
                             let (selection, assignments) = get_mutation_assignments(
                                 &field.arguments,
                                 &variables,
                                 &mut sql_vars,
+                                &mut final_vars,
                                 has_updated_at_directive,
                             )?;
-                            let params = if sql_vars.is_empty() {
+                            let params = if final_vars.is_empty() {
                                 None
                             } else {
-                                Some(sql_vars.into_values().collect())
+                                Some(
+                                    final_vars
+                                        .into_iter()
+                                        .filter_map(|n| sql_vars.remove(&n))
+                                        .collect(),
+                                )
                             };
                             return Ok((
                                 wrap_mutation(
@@ -2592,18 +2646,25 @@ pub fn gql2sql<'a>(
                                 None,
                                 &variables,
                                 &mut sql_vars,
+                                &mut final_vars,
                                 &mut tags,
                             )?;
                             let (selection, _) = get_mutation_assignments(
                                 &field.arguments,
                                 &variables,
                                 &mut sql_vars,
+                                &mut final_vars,
                                 false,
                             )?;
-                            let params = if sql_vars.is_empty() {
+                            let params = if final_vars.is_empty() {
                                 None
                             } else {
-                                Some(sql_vars.into_values().collect())
+                                Some(
+                                    final_vars
+                                        .into_iter()
+                                        .filter_map(|n| sql_vars.remove(&n))
+                                        .collect(),
+                                )
                             };
                             return Ok((
                                 wrap_mutation(
@@ -2651,8 +2712,6 @@ mod tests {
 
     use insta::assert_snapshot;
     use simd_json::json;
-    use sqlparser::dialect::PostgreSqlDialect;
-    use sqlparser::parser::Parser;
 
     #[test]
     fn simple() -> Result<(), anyhow::Error> {
@@ -3455,10 +3514,8 @@ mod tests {
             })),
             None,
         )?;
-        println!("{}", statement.to_string());
-        println!("{}", simd_json::to_string_pretty(&params)?);
-        // assert_snapshot!(statement.to_string());
-        // assert_snapshot!(simd_json::to_string_pretty(&params)?);
+        assert_snapshot!(statement.to_string());
+        assert_snapshot!(simd_json::to_string_pretty(&params)?);
         Ok(())
     }
 }
