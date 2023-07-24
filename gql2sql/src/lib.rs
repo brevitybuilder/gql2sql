@@ -231,69 +231,68 @@ fn get_filter(
         .get("operator")
         .map(|v| get_string_or_variable(v, sql_vars))
         .ok_or(anyhow!("operator not found"))??;
-    if let Some(value) = args.get("value") {
-        if operator == "eq" {
-            if let Ok(value) = get_string_or_variable(value, sql_vars) {
-                tags.insert(Tag {
-                    key: field.clone(),
-                    value,
-                });
-            }
+    let value = args.get("value").unwrap_or_else(|| &GqlValue::Null);
+    if operator == "eq" {
+        if let Ok(value) = get_string_or_variable(value, sql_vars) {
+            tags.insert(Tag {
+                key: field.clone(),
+                value,
+            });
         }
-        let left = Expr::Identifier(Ident {
-            value: field,
-            quote_style: Some(QUOTE_CHAR),
-        });
-        let primary = get_expr(left, operator.as_str(), value, sql_vars, final_vars)?;
-        if args.contains_key("children") {
-            if let Some(GqlValue::List(children)) = args.get("children") {
-                let op = if let Some(GqlValue::String(op)) = args.get("logicalOperator") {
-                    get_logical_operator(op.as_str())?
-                } else {
-                    BinaryOperator::And
-                };
-                if let Some(filters) = children
-                    .iter()
-                    .map(|v| match v {
-                        GqlValue::Object(o) => {
-                            if let Ok((item, new_tags)) = get_filter(o, sql_vars, final_vars) {
-                                if let Some(new_tags) = new_tags {
-                                    tags.extend(new_tags);
-                                }
-                                return item;
-                            }
-                            None
-                        }
-                        _ => None,
-                    })
-                    .fold(primary, |acc: Option<Expr>, item| {
-                        if let Some(acc) = acc {
-                            let item = item.unwrap_or_else(|| Expr::Value(Value::Boolean(true)));
-                            let expr = Expr::BinaryOp {
-                                left: Box::new(acc),
-                                op: op.clone(),
-                                right: Box::new(item),
-                            };
-                            Some(expr)
-                        } else {
-                            None
-                        }
-                    })
-                {
-                    if !tags.is_empty() {
-                        return Ok((Some(Expr::Nested(Box::new(filters))), Some(tags)));
-                    } else {
-                        return Ok((Some(Expr::Nested(Box::new(filters))), None));
-                    }
-                }
-                return Ok((None, None));
-            }
-        } else {
-            if !tags.is_empty() {
-                return Ok((primary, Some(tags)));
+    }
+    let left = Expr::Identifier(Ident {
+        value: field,
+        quote_style: Some(QUOTE_CHAR),
+    });
+    let primary = get_expr(left, operator.as_str(), value, sql_vars, final_vars)?;
+    if args.contains_key("children") {
+        if let Some(GqlValue::List(children)) = args.get("children") {
+            let op = if let Some(GqlValue::String(op)) = args.get("logicalOperator") {
+                get_logical_operator(op.as_str())?
             } else {
-                return Ok((primary, None));
+                BinaryOperator::And
+            };
+            if let Some(filters) = children
+                .iter()
+                .map(|v| match v {
+                    GqlValue::Object(o) => {
+                        if let Ok((item, new_tags)) = get_filter(o, sql_vars, final_vars) {
+                            if let Some(new_tags) = new_tags {
+                                tags.extend(new_tags);
+                            }
+                            return item;
+                        }
+                        None
+                    }
+                    _ => None,
+                })
+                .fold(primary, |acc: Option<Expr>, item| {
+                    if let Some(acc) = acc {
+                        let item = item.unwrap_or_else(|| Expr::Value(Value::Boolean(true)));
+                        let expr = Expr::BinaryOp {
+                            left: Box::new(acc),
+                            op: op.clone(),
+                            right: Box::new(item),
+                        };
+                        Some(expr)
+                    } else {
+                        None
+                    }
+                })
+            {
+                if !tags.is_empty() {
+                    return Ok((Some(Expr::Nested(Box::new(filters))), Some(tags)));
+                } else {
+                    return Ok((Some(Expr::Nested(Box::new(filters))), None));
+                }
             }
+            return Ok((None, None));
+        }
+    } else {
+        if !tags.is_empty() {
+            return Ok((primary, Some(tags)));
+        } else {
+            return Ok((primary, None));
         }
     }
     Ok((None, None))
