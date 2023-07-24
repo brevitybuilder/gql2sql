@@ -65,6 +65,9 @@ fn get_value<'a>(
     match value {
         GqlValue::Variable(v) => {
             if sql_vars.contains_key(v) {
+                if let Some(JsonValue::Static(StaticNode::Null)) = sql_vars.get(v) {
+                    return Ok(Expr::Value(Value::Null));
+                }
                 let (i, _) = final_vars.insert_full(v.clone());
                 return Ok(Expr::Value(Value::Placeholder(format!("${}", i + 1,))));
             }
@@ -157,7 +160,7 @@ fn get_expr<'a>(
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
     final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<Option<Expr>> {
-    let right_value = get_value(value, sql_vars, final_vars)?;
+    let mut right_value = get_value(value, sql_vars, final_vars)?;
     match operator {
         "like" => Ok(Some(Expr::Like {
             negated: false,
@@ -173,6 +176,20 @@ fn get_expr<'a>(
         })),
         _ => {
             let op = get_op(operator)?;
+            if let Expr::Value(Value::Null) = right_value {
+                if op == BinaryOperator::Eq {
+                    return Ok(Some(Expr::IsNull(Box::new(left))));
+                } else if op == BinaryOperator::NotEq {
+                    return Ok(Some(Expr::IsNotNull(Box::new(left))));
+                }
+            }
+            if op == BinaryOperator::NotEq {
+                right_value = Expr::BinaryOp {
+                    left: Box::new(right_value),
+                    op: BinaryOperator::Or,
+                    right: Box::new(Expr::IsNull(Box::new(left.clone()))),
+                };
+            }
             Ok(Some(Expr::BinaryOp {
                 left: Box::new(left),
                 op,
