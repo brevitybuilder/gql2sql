@@ -2508,15 +2508,15 @@ pub fn gql2sql<'a>(
                                 &mut sql_vars,
                                 &mut final_vars,
                             )?;
-                            let (projection, _, _) = get_projection(
-                                &field.selection_set.node.items,
-                                name,
-                                None,
-                                &variables,
-                                &mut sql_vars,
-                                &mut final_vars,
-                                &mut tags,
-                            )?;
+                            // let (projection, _, _) = get_projection(
+                            //     &field.selection_set.node.items,
+                            //     name,
+                            //     None,
+                            //     &variables,
+                            //     &mut sql_vars,
+                            //     &mut final_vars,
+                            //     &mut tags,
+                            // )?;
                             let params = if final_vars.is_empty() {
                                 None
                             } else {
