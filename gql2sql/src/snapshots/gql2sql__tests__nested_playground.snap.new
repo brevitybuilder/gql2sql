@@ -1,0 +1,6 @@
+---
+source: gql2sql/src/lib.rs
+assertion_line: 3477
+expression: statement.to_string()
+---
+WITH "result" AS (INSERT INTO "F8tUM8nfFJkcLzBHDPNVF" ("QUegRwDXj93Qg8LLbYmBi", "UNrh6yHEAG346xA87Mpdt", "mXnPdXVNw9iVxWEPEhYkR_id") VALUES ($1, $2, $3) RETURNING *) SELECT json_build_object('createF8tUM8nfFJkcLzBHDPNVF', (SELECT coalesce(json_agg("result"), '[]') -> 0 FROM "result")) AS "data"

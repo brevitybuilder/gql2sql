@@ -2552,7 +2552,14 @@ pub fn gql2sql<'a>(
                                         after_columns: vec![],
                                         table: false,
                                         on: None,
-                                        returning: Some(projection),
+                                        returning: Some(vec![SelectItem::Wildcard(
+                                            WildcardAdditionalOptions {
+                                                opt_exclude: None,
+                                                opt_except: None,
+                                                opt_rename: None,
+                                                opt_replace: None,
+                                            },
+                                        )]),
                                     },
                                     is_single,
                                 ),
