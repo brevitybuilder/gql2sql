@@ -15,7 +15,7 @@ napi-derive = "2"
 gql2sql = { path = "../gql2sql" }
 async-graphql-parser = "5.0.10"
 anyhow = "1.0.72"
-simd-json = "0.10.3"
+simd-json = "0.10.5"
 
 [build-dependencies]
 napi-build = "2"
