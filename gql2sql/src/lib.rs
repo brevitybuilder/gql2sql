@@ -61,9 +61,9 @@ fn value_to_type(value: &JsonValue) -> String {
     match value {
         JsonValue::Static(StaticNode::Null) => "".to_owned(),
         JsonValue::Static(StaticNode::Bool(_)) => "::boolean".to_owned(),
-        JsonValue::Static(StaticNode::I64(_)) => "::number".to_owned(),
-        JsonValue::Static(StaticNode::U64(_)) => "::number".to_owned(),
-        JsonValue::Static(StaticNode::F64(_)) => "::number".to_owned(),
+        JsonValue::Static(StaticNode::I64(_)) => "::numberic".to_owned(),
+        JsonValue::Static(StaticNode::U64(_)) => "::numberic".to_owned(),
+        JsonValue::Static(StaticNode::F64(_)) => "::numberic".to_owned(),
         JsonValue::String(s) => {
             if let Some(_) = detect_date(s) {
                 return "::timestamptz".to_owned();
