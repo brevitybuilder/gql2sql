@@ -70,7 +70,7 @@ fn value_to_type(value: &JsonValue) -> String {
             } else {
                 return "::text".to_owned();
             }
-        },
+        }
         JsonValue::Array(_) => "::jsonb".to_owned(),
         JsonValue::Object(_) => "::jsonb".to_owned(),
     }
