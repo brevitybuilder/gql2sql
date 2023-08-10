@@ -11,13 +11,13 @@ readme = "../README.md"
 [dependencies]
 anyhow = "1.0"
 graphql-parser = "0.4"
-async-graphql-parser = "5.0.10"
-async-graphql-value = "5.0.10"
-simd-json = "0.10.3"
-sqlparser = "0.35"
+async-graphql-parser = "6.0.1"
+async-graphql-value = "6.0.1"
+simd-json = "0.10.5"
+sqlparser = "0.36"
 indexmap = "2.0.0"
 lazy_static = "1.4.0"
-regex = "1.9.1"
+regex = "1.9.3"
 
 [dev-dependencies]
 criterion = "0.5"

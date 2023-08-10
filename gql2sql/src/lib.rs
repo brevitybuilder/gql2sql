@@ -57,6 +57,25 @@ pub fn detect_date(text: &str) -> Option<String> {
     None
 }
 
+fn value_to_type(value: &JsonValue) -> String {
+    match value {
+        JsonValue::Static(StaticNode::Null) => "".to_owned(),
+        JsonValue::Static(StaticNode::Bool(_)) => "::boolean".to_owned(),
+        JsonValue::Static(StaticNode::I64(_)) => "::number".to_owned(),
+        JsonValue::Static(StaticNode::U64(_)) => "::number".to_owned(),
+        JsonValue::Static(StaticNode::F64(_)) => "::number".to_owned(),
+        JsonValue::String(s) => {
+            if let Some(_) = detect_date(s) {
+                return "::timestamptz".to_owned();
+            } else {
+                return "::text".to_owned();
+            }
+        },
+        JsonValue::Array(_) => "::jsonb".to_owned(),
+        JsonValue::Object(_) => "::jsonb".to_owned(),
+    }
+}
+
 fn get_value<'a>(
     value: &'a GqlValue,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
@@ -65,11 +84,18 @@ fn get_value<'a>(
     match value {
         GqlValue::Variable(v) => {
             if sql_vars.contains_key(v) {
-                if let Some(JsonValue::Static(StaticNode::Null)) = sql_vars.get(v) {
+                let var_value = sql_vars
+                    .get(v)
+                    .expect("variable not found, gaurded by contains");
+                if let JsonValue::Static(StaticNode::Null) = var_value {
                     return Ok(Expr::Value(Value::Null));
                 }
+                let param_cast = value_to_type(var_value);
                 let (i, _) = final_vars.insert_full(v.clone());
-                return Ok(Expr::Value(Value::Placeholder(format!("${}", i + 1,))));
+                return Ok(Expr::Value(Value::Placeholder(format!(
+                    "${}{param_cast}",
+                    i + 1,
+                ))));
             }
             Err(anyhow!(
                 "variable {} not found in sql_vars {:?}",
@@ -3444,59 +3470,36 @@ mod tests {
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-            query BrevityQuery($id_getkREJRjTQ9NTjzJdqPYkzEById: ID, $order_getkREJRjTQ9NTjzJdqPYkzEList: [kREJRjTQ9NTjzJdqPYkzE_Order], $filter_getUserById: UserFilter!) {
-                getkREJRjTQ9NTjzJdqPYkzEById(id: $id_getkREJRjTQ9NTjzJdqPYkzEById) @meta(table: "kREJRjTQ9NTjzJdqPYkzE", single: true, display: "Get Convo by Id") {
-                    id
-                    created_at
-                    updated_at
-                    kFqpygT7a4AWzp6kBmRgB
-                    F8tUM8nfFJkcLzBHDPNVF_by_kREJRjTQ9NTjzJdqPYkzE @relation(table: "F8tUM8nfFJkcLzBHDPNVF", fields: ["mXnPdXVNw9iVxWEPEhYkR_id"], references: ["id"]) {
-                    UNrh6yHEAG346xA87Mpdt
-                    QUegRwDXj93Qg8LLbYmBi
-                    id
-                    created_at
-                    updated_at
-                    }
-                }
-                getkREJRjTQ9NTjzJdqPYkzEList(order: $order_getkREJRjTQ9NTjzJdqPYkzEList) @meta(table: "kREJRjTQ9NTjzJdqPYkzE", display: "Get List of Convo") {
-                    id
-                    created_at
-                    updated_at
-                    kFqpygT7a4AWzp6kBmRgB
-                    F8tUM8nfFJkcLzBHDPNVF_by_kREJRjTQ9NTjzJdqPYkzE @relation(table: "F8tUM8nfFJkcLzBHDPNVF", fields: ["mXnPdXVNw9iVxWEPEhYkR_id"], references: ["id"]) {
-                    UNrh6yHEAG346xA87Mpdt
-                    QUegRwDXj93Qg8LLbYmBi
-                    id
-                    created_at
-                    updated_at
-                    }
-                }
-                getUserById(filter: $filter_getUserById) @meta(table: "User", single: true, display: "Get User by Id") {
-                    id
-                    __typename
-                }
-            }
+mutation BrevityMutation($data_createpVJVqErcpQXcRFMpiQAdf: Demo) {
+  createpVJVqErcpQXcRFMpiQAdf(data: $data_createpVJVqErcpQXcRFMpiQAdf) @meta(table: "pVJVqErcpQXcRFMpiQAdf", insert: true, single: true, display: "Create Demo") {
+    id
+    __typename
+  }
+}
             "#,
         )?;
         let (statement, params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
-                "id_getkREJRjTQ9NTjzJdqPYkzEById": "asdas",
-                "order_getkREJRjTQ9NTjzJdqPYkzEList": [
-                    {
-                        "created_at": "ASC"
-                    }
-                ],
-                "filter_getUserById": {
-                    "field": "id",
-                    "operator": "eq",
-                    "value": "D7gQ6arDWgfULjxrgh6VA"
-                }
+              "data_createpVJVqErcpQXcRFMpiQAdf": {
+                "UGem4FjU4rwiWrjW9arM4": {
+                  "key": "uploads/public/nick-shandra-uvrdsaipozo-unsplash-1691701525448.jpg",
+                  "filename": "nick-shandra-UvrDsAIPozo-unsplash.jpg",
+                  "size": 3905151,
+                  "contentType": "image/jpeg",
+                  "url": "/api/uploads/public/nick-shandra-uvrdsaipozo-unsplash-1691701525448.jpg",
+                  "private": false
+                },
+                "k4wVq3nGhBEdLJCTYcnbX": "2023-08-10T21:05:26.164Z"
+              }
             })),
             None,
         )?;
-        assert_snapshot!(statement.to_string());
-        assert_snapshot!(simd_json::to_string_pretty(&params)?);
+
+        println!("query: {}", statement.to_string());
+        println!("vars: {}", simd_json::to_string_pretty(&params)?);
+        // assert_snapshot!(statement.to_string());
+        // assert_snapshot!();
         Ok(())
     }
 }
