@@ -14,7 +14,7 @@ napi = { version = "2", features = ["serde-json", "error_anyhow", "anyhow"] }
 napi-derive = "2"
 gql2sql = { path = "../gql2sql" }
 async-graphql-parser = "6.0.1"
-anyhow = "1.0.72"
+anyhow = "1.0.75"
 simd-json = "0.10.5"
 
 [build-dependencies]
