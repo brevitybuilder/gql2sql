@@ -2,4 +2,4 @@
 source: gql2sql/src/lib.rs
 expression: statement.to_string()
 ---
-WITH "result" AS (UPDATE "auth"."Hero" SET "updated_at" = now(), "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING "id", "name", "secret_identity", "number_of_movies") SELECT json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data"
+WITH "result" AS (UPDATE "auth"."Hero" SET "updated_at" = now(), "name" = 'Captain America', "number_of_movies" = "number_of_movies" + 1 WHERE "secret_identity" = 'Sam Wilson' RETURNING *) SELECT json_build_object('update', (SELECT coalesce(json_agg("result"), '[]') FROM "result")) AS "data"

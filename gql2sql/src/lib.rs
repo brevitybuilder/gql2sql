@@ -1412,6 +1412,7 @@ fn get_filter_query(
                 .into_iter()
                 .map(|table_name| TableWithJoins {
                     relation: TableFactor::Table {
+                        version: None,
                         name: table_name,
                         alias: None,
                         args: None,
@@ -2177,6 +2178,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                                     into: None,
                                     from: vec![TableWithJoins {
                                         relation: TableFactor::Table {
+                                            version: None,
                                             name: ObjectName(vec![Ident {
                                                 value: "result".to_string(),
                                                 quote_style: Some(QUOTE_CHAR),
@@ -2597,15 +2599,6 @@ pub fn gql2sql<'a>(
                                 .directives
                                 .iter()
                                 .any(|d| d.node.name.node == "updatedAt");
-                            let (projection, _, _) = get_projection(
-                                &field.selection_set.node.items,
-                                name,
-                                None,
-                                &variables,
-                                &mut sql_vars,
-                                &mut final_vars,
-                                &mut tags,
-                            )?;
                             let (selection, assignments) = get_mutation_assignments(
                                 &field.arguments,
                                 &variables,
@@ -2629,6 +2622,7 @@ pub fn gql2sql<'a>(
                                     Statement::Update {
                                         table: TableWithJoins {
                                             relation: TableFactor::Table {
+                                                version: None,
                                                 name: table_name,
                                                 alias: None,
                                                 args: None,
@@ -2639,7 +2633,14 @@ pub fn gql2sql<'a>(
                                         assignments,
                                         from: None,
                                         selection,
-                                        returning: Some(projection),
+                                        returning: Some(vec![SelectItem::Wildcard(
+                                            WildcardAdditionalOptions {
+                                                opt_exclude: None,
+                                                opt_except: None,
+                                                opt_rename: None,
+                                                opt_replace: None,
+                                            },
+                                        )]),
                                     },
                                     is_single,
                                 ),
@@ -2647,15 +2648,6 @@ pub fn gql2sql<'a>(
                                 None,
                             ));
                         } else if is_delete {
-                            let (projection, _, _) = get_projection(
-                                &field.selection_set.node.items,
-                                name,
-                                None,
-                                &variables,
-                                &mut sql_vars,
-                                &mut final_vars,
-                                &mut tags,
-                            )?;
                             let (selection, _) = get_mutation_assignments(
                                 &field.arguments,
                                 &variables,
@@ -2680,6 +2672,7 @@ pub fn gql2sql<'a>(
                                         tables: vec![],
                                         from: vec![TableWithJoins {
                                             relation: TableFactor::Table {
+                                                version: None,
                                                 name: table_name,
                                                 alias: None,
                                                 args: None,
@@ -2689,7 +2682,14 @@ pub fn gql2sql<'a>(
                                         }],
                                         using: None,
                                         selection,
-                                        returning: Some(projection),
+                                        returning: Some(vec![SelectItem::Wildcard(
+                                            WildcardAdditionalOptions {
+                                                opt_exclude: None,
+                                                opt_except: None,
+                                                opt_rename: None,
+                                                opt_replace: None,
+                                            },
+                                        )]),
                                     },
                                     is_single,
                                 ),
