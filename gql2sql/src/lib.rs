@@ -1,5 +1,7 @@
 mod consts;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
 use crate::consts::{
     BASE, DATA_LABEL, JSONB_BUILD_ARRAY, JSONB_BUILD_OBJECT, JSON_AGG, JSON_BUILD_OBJECT, ON,
     QUOTE_CHAR, ROOT_LABEL, TO_JSON, TO_JSONB,
@@ -1063,7 +1065,13 @@ fn get_projection<'a>(
             Selection::Field(field) => {
                 let field = &field.node;
                 if !field.selection_set.node.items.is_empty() {
-                    let name = format!("join.{}", field.name.node.as_ref());
+                    let mut hasher = DefaultHasher::new();
+                    println!("json: {}, {}", field.name.node.as_ref(), simd_json::to_string(&field.arguments)?);
+                    let arg_bytes = simd_json::to_vec(&field.arguments)?;
+                    hasher.write(&arg_bytes);
+                    let hash_str = format!("{:x}", hasher.finish());
+                    let name = format!("join.{}.{}", field.name.node.as_ref(), &hash_str[..13]);
+                    println!("full name: {name}");
                     let join = get_join(
                         &field.arguments,
                         &field.directives,
@@ -3470,27 +3478,116 @@ mod tests {
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-mutation BrevityMutation($data_createpVJVqErcpQXcRFMpiQAdf: Demo) {
-  createpVJVqErcpQXcRFMpiQAdf(data: $data_createpVJVqErcpQXcRFMpiQAdf) @meta(table: "pVJVqErcpQXcRFMpiQAdf", insert: true, single: true, display: "Create Demo") {
-    id
-    __typename
-  }
-}
+                query BrevityQuery($order_edygtVPcdhLyKaaCThy4y_id: [FiQVntdENFUmLFJRATRGJ_Order], $filter_getUserById: UserFilter!) {
+                getUserById(filter: $filter_getUserById) @meta(table: "User", single: true, display: "Get User by Id") {
+                    id
+                    PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "bQk9eeeaMqFUDfrcXY6er", fields: ["id"], single: true, references: ["PmxFDD3Wj9FDj6hE6fWfF_id"]) {
+                    nwJLQ3QhXAJjygAGwYPQp
+                    LaJqNrrQRDLgRqz4JjEDX
+                    raw: edygtVPcdhLyKaaCThy4y_id @relation(table: "FiQVntdENFUmLFJRATRGJ", fields: ["edygtVPcdhLyKaaCThy4y_id"], references: ["id"]) {
+                        id
+                        created_at
+                        updated_at
+                        MdweVdWiMPnnJgqa7xHQf
+                        dQ9dzGxxdHye3Rbwa8737
+                        g6Q734iqF39AL3FNkfVn9
+                        gmXDgDza8d7iHcxxycyQf
+                        jMgUaKjdbzFmMteM7DEfR
+                        r6eqdbkkyGH3zArgMjN66
+                        ketefetGKNwQQTyEPhHUQ_id @relation(table: "User", fields: ["id"], single: true, references: ["ketefetGKNwQQTyEPhHUQ_id"]) {
+                        id
+                        PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "bQk9eeeaMqFUDfrcXY6er", fields: ["id"], single: true, references: ["PmxFDD3Wj9FDj6hE6fWfF_id"]) {
+                            id
+                            __typename
+                        }
+                        name
+                        email
+                        created_at
+                        updated_at
+                        profile_image_url
+                        }
+                        dqyK3yhWrRdhJJdbhTYwD_F4EigxCrBdrgrVCkBCTn3_id_fkey_rA @relation(table: "dqyK3yhWrRdhJJdbhTYwD", fields: ["F4EigxCrBdrgrVCkBCTn3_id"], aggregate: true, references: ["id"]) {
+                        count
+                        }
+                    }
+                    id
+                    created_at
+                    updated_at
+                    edygtVPcdhLyKaaCThy4y_id(order: $order_edygtVPcdhLyKaaCThy4y_id) @relation(table: "FiQVntdENFUmLFJRATRGJ", fields: ["edygtVPcdhLyKaaCThy4y_id"], references: ["id"]) {
+                        id
+                        created_at
+                        updated_at
+                        MdweVdWiMPnnJgqa7xHQf
+                        dQ9dzGxxdHye3Rbwa8737
+                        g6Q734iqF39AL3FNkfVn9
+                        gmXDgDza8d7iHcxxycyQf
+                        jMgUaKjdbzFmMteM7DEfR
+                        r6eqdbkkyGH3zArgMjN66
+                        ketefetGKNwQQTyEPhHUQ_id @relation(table: "User", fields: ["id"], single: true, references: ["ketefetGKNwQQTyEPhHUQ_id"]) {
+                        id
+                        PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "bQk9eeeaMqFUDfrcXY6er", fields: ["id"], single: true, references: ["PmxFDD3Wj9FDj6hE6fWfF_id"]) {
+                            id
+                            __typename
+                        }
+                        name
+                        email
+                        created_at
+                        updated_at
+                        profile_image_url
+                        }
+                        dqyK3yhWrRdhJJdbhTYwD_F4EigxCrBdrgrVCkBCTn3_id_fkey_rA @relation(table: "dqyK3yhWrRdhJJdbhTYwD", fields: ["F4EigxCrBdrgrVCkBCTn3_id"], aggregate: true, references: ["id"]) {
+                        count
+                        }
+                    }
+                    PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "User", fields: ["PmxFDD3Wj9FDj6hE6fWfF_id"], references: ["id"]) {
+                        id
+                        PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "bQk9eeeaMqFUDfrcXY6er", fields: ["id"], single: true, references: ["PmxFDD3Wj9FDj6hE6fWfF_id"]) {
+                        nwJLQ3QhXAJjygAGwYPQp
+                        LaJqNrrQRDLgRqz4JjEDX
+                        raw: edygtVPcdhLyKaaCThy4y_id @relation(table: "FiQVntdENFUmLFJRATRGJ", fields: ["edygtVPcdhLyKaaCThy4y_id"], references: ["id"]) {
+                            id
+                            __typename
+                        }
+                        id
+                        created_at
+                        updated_at
+                        edygtVPcdhLyKaaCThy4y_id(order: $order_edygtVPcdhLyKaaCThy4y_id) @relation(table: "FiQVntdENFUmLFJRATRGJ", fields: ["edygtVPcdhLyKaaCThy4y_id"], references: ["id"]) {
+                            id
+                            __typename
+                        }
+                        PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "User", fields: ["PmxFDD3Wj9FDj6hE6fWfF_id"], references: ["id"]) {
+                            id
+                            __typename
+                        }
+                        }
+                        name
+                        email
+                        created_at
+                        updated_at
+                        profile_image_url
+                    }
+                    }
+                    name
+                    email
+                    created_at
+                    updated_at
+                    profile_image_url
+                }
+                }
             "#,
         )?;
         let (statement, params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
-              "data_createpVJVqErcpQXcRFMpiQAdf": {
-                "UGem4FjU4rwiWrjW9arM4": {
-                  "key": "uploads/public/nick-shandra-uvrdsaipozo-unsplash-1691701525448.jpg",
-                  "filename": "nick-shandra-UvrDsAIPozo-unsplash.jpg",
-                  "size": 3905151,
-                  "contentType": "image/jpeg",
-                  "url": "/api/uploads/public/nick-shandra-uvrdsaipozo-unsplash-1691701525448.jpg",
-                  "private": false
-                },
-                "k4wVq3nGhBEdLJCTYcnbX": "2023-08-10T21:05:26.164Z"
+              "order_edygtVPcdhLyKaaCThy4y_id": [
+                {
+                  "created_at": "ASC"
+                }
+              ],
+              "filter_getUserById": {
+                "field": "id",
+                "operator": "eq",
+                "value": "hC8azGq9EeGAjt67BWDbm"
               }
             })),
             None,
