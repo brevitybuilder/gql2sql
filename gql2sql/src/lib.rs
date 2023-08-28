@@ -1,7 +1,5 @@
 mod consts;
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hasher;
 use crate::consts::{
     BASE, DATA_LABEL, JSONB_BUILD_ARRAY, JSONB_BUILD_OBJECT, JSON_AGG, JSON_BUILD_OBJECT, ON,
     QUOTE_CHAR, ROOT_LABEL, TO_JSON, TO_JSONB,
@@ -27,6 +25,8 @@ use sqlparser::ast::{
     SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
     WildcardAdditionalOptions, With,
 };
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
 use std::{
     fmt::{Debug, Formatter},
     iter::zip,
@@ -1066,7 +1066,11 @@ fn get_projection<'a>(
                 let field = &field.node;
                 if !field.selection_set.node.items.is_empty() {
                     let mut hasher = DefaultHasher::new();
-                    println!("json: {}, {}", field.name.node.as_ref(), simd_json::to_string(&field.arguments)?);
+                    println!(
+                        "json: {}, {}",
+                        field.name.node.as_ref(),
+                        simd_json::to_string(&field.arguments)?
+                    );
                     let arg_bytes = simd_json::to_vec(&field.arguments)?;
                     hasher.write(&arg_bytes);
                     let hash_str = format!("{:x}", hasher.finish());
