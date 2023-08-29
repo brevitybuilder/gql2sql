@@ -234,7 +234,6 @@ fn get_string_or_variable(
     match value {
         GqlValue::Variable(v) => {
             if let Some(JsonValue::String(s)) = variables.get(v) {
-                println!("found variable: {}, {}", s, v);
                 Ok(s.clone())
             } else {
                 Err(anyhow!("variable not found"))
@@ -1111,7 +1110,6 @@ fn get_projection<'a>(
                     hasher.write(&arg_bytes);
                     let hash_str = format!("{:x}", hasher.finish());
                     let name = format!("join.{}.{}", field.name.node.as_ref(), &hash_str[..13]);
-                    println!("full name: {name}");
                     let join = get_join(
                         &field.arguments,
                         &field.directives,
