@@ -2336,7 +2336,7 @@ pub fn gql2sql<'a>(
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
                         if has_skip(field, &mut sql_vars) {
-                            continue
+                            continue;
                         }
                         let (name, key, is_aggregate, is_single, schema_name) =
                             parse_query_meta(field)?;
