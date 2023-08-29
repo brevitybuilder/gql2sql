@@ -1047,6 +1047,44 @@ fn get_static<'a>(
     Ok(None)
 }
 
+fn parse_skip<'a>(directive: &'a Directive, sql_vars: &'a mut IndexMap<Name, JsonValue>) -> bool {
+    if let Some((_, value_pos)) = directive.arguments.iter().find(|&arg| arg.0.node == "if") {
+        let value = &value_pos.node;
+        match value {
+            GqlValue::Variable(v) => {
+                if sql_vars.contains_key(v) {
+                    let var_value = sql_vars
+                        .get(v)
+                        .expect("variable not found, gaurded by contains");
+                    if let JsonValue::Static(StaticNode::Bool(b)) = var_value {
+                        return *b;
+                    }
+                    return false;
+                }
+                return false;
+            }
+            GqlValue::Boolean(b) => {
+                return *b;
+            }
+            _ => {
+                return false;
+            }
+        }
+    }
+    return false;
+}
+
+fn has_skip<'a>(field: &'a Field, sql_vars: &'a mut IndexMap<Name, JsonValue>) -> bool {
+    if let Some(directive) = field
+        .directives
+        .iter()
+        .find(|&x| x.node.name.node == "skip")
+    {
+        return parse_skip(&directive.node, sql_vars);
+    }
+    return false;
+}
+
 fn get_projection<'a>(
     items: &'a Vec<Positioned<Selection>>,
     relation: &'a str,
@@ -1064,13 +1102,11 @@ fn get_projection<'a>(
         match selection {
             Selection::Field(field) => {
                 let field = &field.node;
+                if has_skip(field, sql_vars) {
+                    continue;
+                }
                 if !field.selection_set.node.items.is_empty() {
                     let mut hasher = DefaultHasher::new();
-                    println!(
-                        "json: {}, {}",
-                        field.name.node.as_ref(),
-                        simd_json::to_string(&field.arguments)?
-                    );
                     let arg_bytes = simd_json::to_vec(&field.arguments)?;
                     hasher.write(&arg_bytes);
                     let hash_str = format!("{:x}", hasher.finish());
@@ -2299,8 +2335,12 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
+                        if has_skip(field, &mut sql_vars) {
+                            continue
+                        }
                         let (name, key, is_aggregate, is_single, schema_name) =
                             parse_query_meta(field)?;
+
                         let (selection, distinct, distinct_order, order_by, mut first, after, keys) =
                             parse_args(
                                 &field.arguments,
