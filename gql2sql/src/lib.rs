@@ -35,6 +35,7 @@ use std::{
 type JsonValue = simd_json::OwnedValue;
 type AnyResult<T> = anyhow::Result<T>;
 
+#[must_use]
 pub fn detect_date(text: &str) -> Option<String> {
     lazy_static! {
         static ref RE: Regex = Regex::new(
@@ -61,16 +62,16 @@ pub fn detect_date(text: &str) -> Option<String> {
 
 fn value_to_type(value: &JsonValue) -> String {
     match value {
-        JsonValue::Static(StaticNode::Null) => "".to_owned(),
+        JsonValue::Static(StaticNode::Null) => String::new(),
         JsonValue::Static(StaticNode::Bool(_)) => "::boolean".to_owned(),
         JsonValue::Static(StaticNode::I64(_)) => "::numeric".to_owned(),
         JsonValue::Static(StaticNode::U64(_)) => "::numeric".to_owned(),
         JsonValue::Static(StaticNode::F64(_)) => "::numeric".to_owned(),
         JsonValue::String(s) => {
-            if let Some(_) = detect_date(s) {
-                return "::timestamptz".to_owned();
+            if detect_date(s).is_some() {
+                "::timestamptz".to_owned()
             } else {
-                return "::text".to_owned();
+                "::text".to_owned()
             }
         }
         JsonValue::Array(_) => "::jsonb".to_owned(),
@@ -114,7 +115,7 @@ fn get_value<'a>(
         GqlValue::List(l) => Ok(Expr::Function(Function {
             name: ObjectName(vec![Ident::new(JSONB_BUILD_ARRAY)]),
             args: l
-                .into_iter()
+                .iter()
                 .map(|v| {
                     let value = get_value(v, sql_vars, final_vars).unwrap();
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(value))
@@ -315,12 +316,10 @@ fn get_filter(
             }
             return Ok((None, None));
         }
+    } else if !tags.is_empty() {
+        return Ok((primary, Some(tags)));
     } else {
-        if !tags.is_empty() {
-            return Ok((primary, Some(tags)));
-        } else {
-            return Ok((primary, None));
-        }
+        return Ok((primary, None));
     }
     Ok((None, None))
 }
@@ -1070,7 +1069,7 @@ fn parse_skip<'a>(directive: &'a Directive, sql_vars: &'a mut IndexMap<Name, Jso
             }
         }
     }
-    return false;
+    false
 }
 
 fn has_skip<'a>(field: &'a Field, sql_vars: &'a mut IndexMap<Name, JsonValue>) -> bool {
@@ -1081,7 +1080,7 @@ fn has_skip<'a>(field: &'a Field, sql_vars: &'a mut IndexMap<Name, JsonValue>) -
     {
         return parse_skip(&directive.node, sql_vars);
     }
-    return false;
+    false
 }
 
 fn get_projection<'a>(
@@ -1537,7 +1536,26 @@ fn get_order<'a>(
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
     final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<Vec<OrderByExpr>> {
-    if order.contains_key("expr") && order.contains_key("dir") {
+    if order.contains_key("field") && order.contains_key("direction") {
+        let direction = value_to_string(
+            order.get("direction").unwrap_or(&GqlValue::Null),
+            sql_vars,
+            final_vars,
+        )?;
+        let field = value_to_string(
+            order.get("field").unwrap_or(&GqlValue::Null),
+            sql_vars,
+            final_vars,
+        )?;
+        return Ok(vec![OrderByExpr {
+            expr: Expr::Identifier(Ident {
+                value: field.clone(),
+                quote_style: Some(QUOTE_CHAR),
+            }),
+            asc: Some(direction == "ASC"),
+            nulls_first: None,
+        }]);
+    } else if order.contains_key("expr") && order.contains_key("dir") {
         let mut asc = None;
         if let Some(dir) = order.get("dir") {
             match dir {
@@ -1598,7 +1616,7 @@ fn get_order<'a>(
         }
     }
     let mut order_by = vec![];
-    for (key, mut value) in order.iter() {
+    for (key, mut value) in order {
         if let GqlValue::Variable(name) = value {
             if let Some(new_value) = variables.get(name) {
                 value = new_value
@@ -1877,7 +1895,7 @@ fn get_mutation_columns<'a>(
         match (key.as_ref(), value) {
             ("data", GqlValue::Object(data)) => {
                 let mut row = vec![];
-                for (key, value) in data.iter() {
+                for (key, value) in data {
                     columns.push(Ident {
                         value: key.to_string(),
                         quote_style: Some(QUOTE_CHAR),
@@ -1893,7 +1911,7 @@ fn get_mutation_columns<'a>(
                 for (i, item) in list.iter().enumerate() {
                     let mut row = vec![];
                     if let GqlValue::Object(data) = item {
-                        for (key, value) in data.iter() {
+                        for (key, value) in data {
                             if i == 0 {
                                 columns.push(Ident {
                                     value: key.to_string(),
@@ -1968,7 +1986,7 @@ fn get_mutation_assignments<'a>(
                 (selection, _) = get_filter(filter, sql_vars, final_vars)?;
             }
             ("set", GqlValue::Object(data)) => {
-                for (key, value) in data.iter() {
+                for (key, value) in data {
                     assignments.push(Assignment {
                         id: vec![Ident {
                             value: key.to_string(),
@@ -1979,7 +1997,7 @@ fn get_mutation_assignments<'a>(
                 }
             }
             ("inc" | "increment", GqlValue::Object(data)) => {
-                for (key, value) in data.iter() {
+                for (key, value) in data {
                     let column_ident = Ident {
                         value: key.to_string(),
                         quote_style: Some(QUOTE_CHAR),
@@ -3635,7 +3653,7 @@ mod tests {
             None,
         )?;
 
-        println!("query: {}", statement.to_string());
+        println!("query: {}", statement);
         println!("vars: {}", simd_json::to_string_pretty(&params)?);
         // assert_snapshot!(statement.to_string());
         // assert_snapshot!();

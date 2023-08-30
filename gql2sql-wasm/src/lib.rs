@@ -41,9 +41,9 @@ pub fn gql2sql(mut args: String) -> Result<String, JsError> {
             .map(|a| match a {
                 Value::String(s) => {
                     if let Some(date) = detect_date(&s) {
-                        return Value::String(date);
+                        Value::String(date)
                     } else {
-                        return Value::String(s);
+                        Value::String(s)
                     }
                 }
                 Value::Static(s) => Value::Static(s),
