@@ -1,6 +1,6 @@
 [package]
 name = "gql2sql-wasm"
-version = "1.0.12"
+version = "1.0.13"
 authors = ["Nick Randall <nicksrandall@gmail.com>"]
 edition = "2018"
 
