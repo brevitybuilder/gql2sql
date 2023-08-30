@@ -1,6 +1,6 @@
 {
   "name": "@brevity-builder/gql2sql",
-  "version": "3.0.12",
+  "version": "3.0.13",
   "description": "",
   "main": "index.js",
   "repository": "git@github.com:@brevity-builder/gql2sql",
