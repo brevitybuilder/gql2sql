@@ -17,6 +17,16 @@ async-graphql-parser = "6.0.4"
 anyhow = "1.0.75"
 simd-json = "=0.10.5"
 
+[build]
+rustflags = ["-C", "target-cpu=native"]
+rustdocflags = ["-C", "target-cpu=native"]
+
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]
+
+[target.wasm32-wasi]
+rustflags = ["-C", "target-feature=+simd128"]
+
 [build-dependencies]
 napi-build = "2"
 
