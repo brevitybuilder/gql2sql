@@ -100,7 +100,7 @@
   "packageManager": "yarn@3.6.1",
   "optionalDependencies": {
     "@brevity-builder/gql2sql-darwin-arm64": "2.0.15",
-    "@brevity-builder/gql2sql-linux-arm64-gnu": "2.0.15",
+    "@brevity-builder/gql2sql-linux-arm64-gnu": "3.0.18",
     "@brevity-builder/gql2sql-linux-arm64-musl": "2.0.15"
   }
 }
