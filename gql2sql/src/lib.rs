@@ -1,3 +1,12 @@
+#![allow(
+    clippy::too_many_arguments,
+    clippy::similar_names,
+    clippy::type_complexity,
+    clippy::too_many_lines,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc
+)]
+
 mod consts;
 
 use crate::consts::{
@@ -1055,7 +1064,7 @@ fn parse_skip<'a>(directive: &'a Directive, sql_vars: &'a IndexMap<Name, JsonVal
     false
 }
 
-fn has_skip<'a>(field: &'a Field, sql_vars: &'a mut IndexMap<Name, JsonValue>) -> bool {
+fn has_skip<'a>(field: &'a Field, sql_vars: &'a IndexMap<Name, JsonValue>) -> bool {
     if let Some(directive) = field
         .directives
         .iter()
@@ -1272,7 +1281,6 @@ fn get_projection<'a>(
 fn value_to_string<'a>(
     value: &'a GqlValue,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
-    final_vars: &'a IndexSet<Name>,
 ) -> AnyResult<String> {
     let output = match value {
         GqlValue::String(s) => s.clone(),
@@ -1281,7 +1289,7 @@ fn value_to_string<'a>(
         GqlValue::Enum(e) => e.to_string(),
         GqlValue::List(l) => l
             .iter()
-            .map(|l| value_to_string(l, sql_vars, final_vars))
+            .map(|l| value_to_string(l, sql_vars))
             .collect::<AnyResult<Vec<String>>>()?
             .join(","),
         GqlValue::Null => "null".to_owned(),
@@ -1303,7 +1311,7 @@ fn value_to_string<'a>(
 fn get_relation<'a>(
     directives: &'a [Positioned<Directive>],
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
-    final_vars: &'a IndexSet<Name>,
+    _final_vars: &'a IndexSet<Name>,
 ) -> AnyResult<(
     String,
     Vec<String>,
@@ -1331,14 +1339,14 @@ fn get_relation<'a>(
                 let name = name.node.as_str();
                 let value = &value.node;
                 match name {
-                    "table" => relation = value_to_string(value, sql_vars, final_vars)?,
-                    "schema" => schema_name = Some(value_to_string(value, sql_vars, final_vars)?),
+                    "table" => relation = value_to_string(value, sql_vars)?,
+                    "schema" => schema_name = Some(value_to_string(value, sql_vars)?),
                     "field" | "fields" => {
                         fk = match &value {
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(|l| value_to_string(l, sql_vars, final_vars))
+                                .map(|l| value_to_string(l, sql_vars))
                                 .collect::<AnyResult<Vec<String>>>()?,
                             _ => {
                                 return Err(anyhow!("Invalid value for field in relation"));
@@ -1350,7 +1358,7 @@ fn get_relation<'a>(
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(|l| value_to_string(l, sql_vars, final_vars))
+                                .map(|l| value_to_string(l, sql_vars))
                                 .collect::<AnyResult<Vec<String>>>()?,
                             _ => {
                                 return Err(anyhow!("Invalid value for reference in relation"));
@@ -1523,12 +1531,10 @@ fn get_order<'a>(
         let direction = value_to_string(
             order.get("direction").unwrap_or(&GqlValue::Null),
             sql_vars,
-            final_vars,
         )?;
         let field = value_to_string(
             order.get("field").unwrap_or(&GqlValue::Null),
             sql_vars,
-            final_vars,
         )?;
         return Ok(vec![OrderByExpr {
             expr: Expr::Identifier(Ident {
@@ -2301,7 +2307,7 @@ impl ToString for Tag {
     }
 }
 
-pub fn gql2sql<'a>(
+pub fn gql2sql(
     ast: ExecutableDocument,
     variables: &Option<JsonValue>,
     operation_name: Option<String>,
@@ -2337,7 +2343,7 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
-                        if has_skip(field, &mut sql_vars) {
+                        if has_skip(field, &sql_vars) {
                             continue;
                         }
                         let (name, key, is_aggregate, is_single, schema_name) =

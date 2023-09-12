@@ -1,3 +1,9 @@
+#![allow(
+    clippy::too_many_lines,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc
+)]
+
 use async_graphql_parser::parse_query;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use gql2sql::gql2sql;
