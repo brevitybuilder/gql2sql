@@ -2,7 +2,7 @@ use async_graphql_parser::parse_query;
 use gql2sql::gql2sql as gql2sql_rs;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
+use serde_json::Value;
 
 #[derive(Deserialize)]
 pub struct Args {
@@ -25,7 +25,7 @@ pub fn gql2sql(mut args: String) -> anyhow::Result<String> {
     query,
     variables,
     operation_name,
-  } = unsafe { simd_json::from_str(&mut args)? };
+  } = serde_json::from_str(&mut args)?;
   let ast = parse_query(query)?;
   let (sql, params, tags) = gql2sql_rs(ast, &variables, operation_name)?;
   let result = GqlResult {
@@ -33,5 +33,5 @@ pub fn gql2sql(mut args: String) -> anyhow::Result<String> {
     params,
     tags,
   };
-  simd_json::to_string(&result).map_err(|e| anyhow::anyhow!(e))
+  serde_json::to_string(&result).map_err(|e| anyhow::anyhow!(e))
 }

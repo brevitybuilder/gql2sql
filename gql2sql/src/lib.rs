@@ -1,3 +1,12 @@
+#![allow(
+    clippy::too_many_arguments,
+    clippy::similar_names,
+    clippy::type_complexity,
+    clippy::too_many_lines,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc
+)]
+
 mod consts;
 
 use crate::consts::{
@@ -18,7 +27,6 @@ use async_graphql_value::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use simd_json::StaticNode;
 use sqlparser::ast::{
     Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
     Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
@@ -32,7 +40,7 @@ use std::{
     iter::zip,
 };
 
-type JsonValue = simd_json::OwnedValue;
+type JsonValue = serde_json::Value;
 type AnyResult<T> = anyhow::Result<T>;
 
 #[must_use]
@@ -52,21 +60,18 @@ pub fn detect_date(text: &str) -> Option<String> {
         } else if text.contains('.') {
             let date_str = text.to_owned() + "Z";
             return Some(date_str);
-        } else {
-            let date_str = text.to_owned() + ".000Z";
-            return Some(date_str);
         }
+        let date_str = text.to_owned() + ".000Z";
+        return Some(date_str);
     }
     None
 }
 
 fn value_to_type(value: &JsonValue) -> String {
     match value {
-        JsonValue::Static(StaticNode::Null) => String::new(),
-        JsonValue::Static(StaticNode::Bool(_)) => "::boolean".to_owned(),
-        JsonValue::Static(StaticNode::I64(_)) => "::numeric".to_owned(),
-        JsonValue::Static(StaticNode::U64(_)) => "::numeric".to_owned(),
-        JsonValue::Static(StaticNode::F64(_)) => "::numeric".to_owned(),
+        JsonValue::Null => String::new(),
+        JsonValue::Bool(_) => "::boolean".to_owned(),
+        JsonValue::Number(_) => "::numeric".to_owned(),
         JsonValue::String(s) => {
             if detect_date(s).is_some() {
                 "::timestamptz".to_owned()
@@ -74,8 +79,7 @@ fn value_to_type(value: &JsonValue) -> String {
                 "::text".to_owned()
             }
         }
-        JsonValue::Array(_) => "::jsonb".to_owned(),
-        JsonValue::Object(_) => "::jsonb".to_owned(),
+        JsonValue::Array(_) | JsonValue::Object(_) => "::jsonb".to_owned(),
     }
 }
 
@@ -90,7 +94,7 @@ fn get_value<'a>(
                 let var_value = sql_vars
                     .get(v)
                     .expect("variable not found, gaurded by contains");
-                if let JsonValue::Static(StaticNode::Null) = var_value {
+                if let JsonValue::Null = var_value {
                     return Ok(Expr::Value(Value::Null));
                 }
                 let param_cast = value_to_type(var_value);
@@ -169,8 +173,8 @@ fn get_logical_operator(op: &str) -> AnyResult<BinaryOperator> {
     Ok(value)
 }
 
-fn get_op(op: &str) -> AnyResult<BinaryOperator> {
-    let value = match op {
+fn get_op(op: &str) -> BinaryOperator {
+    match op {
         "eq" | "equals" => BinaryOperator::Eq,
         "neq" | "not_equals" => BinaryOperator::NotEq,
         "lt" | "less_than" => BinaryOperator::Lt,
@@ -178,8 +182,7 @@ fn get_op(op: &str) -> AnyResult<BinaryOperator> {
         "gt" | "greater_than" => BinaryOperator::Gt,
         "gte" | "greater_than_or_equals" => BinaryOperator::GtEq,
         _ => BinaryOperator::Custom(op.to_owned()),
-    };
-    Ok(value)
+    }
 }
 
 fn get_expr<'a>(
@@ -204,7 +207,7 @@ fn get_expr<'a>(
             escape_char: None,
         })),
         _ => {
-            let op = get_op(operator)?;
+            let op = get_op(operator);
             if let Expr::Value(Value::Null) = right_value {
                 if op == BinaryOperator::Eq {
                     return Ok(Some(Expr::IsNull(Box::new(left))));
@@ -230,7 +233,7 @@ fn get_expr<'a>(
 
 fn get_string_or_variable(
     value: &GqlValue,
-    variables: &mut IndexMap<Name, JsonValue>,
+    variables: &IndexMap<Name, JsonValue>,
 ) -> AnyResult<String> {
     match value {
         GqlValue::Variable(v) => {
@@ -308,11 +311,10 @@ fn get_filter(
                     }
                 })
             {
-                if !tags.is_empty() {
-                    return Ok((Some(Expr::Nested(Box::new(filters))), Some(tags)));
-                } else {
+                if tags.is_empty() {
                     return Ok((Some(Expr::Nested(Box::new(filters))), None));
                 }
+                return Ok((Some(Expr::Nested(Box::new(filters))), Some(tags)));
             }
             return Ok((None, None));
         }
@@ -629,13 +631,13 @@ fn get_agg_agg_projection(field: &Field, table_name: String) -> Vec<FunctionArg>
 
 fn get_aggregate_projection(
     items: &Vec<Positioned<Selection>>,
-    table_name: String,
+    table_name: &str,
 ) -> AnyResult<Vec<FunctionArg>> {
     let mut aggs = Vec::new();
     for selection in items {
         match &selection.node {
             Selection::Field(field) => {
-                aggs.extend(get_agg_agg_projection(&field.node, table_name.clone()));
+                aggs.extend(get_agg_agg_projection(&field.node, table_name.to_string()));
             }
             Selection::FragmentSpread(_) => {
                 return Err(anyhow!(
@@ -654,7 +656,7 @@ fn get_aggregate_projection(
 
 fn get_join<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
-    directives: &'a Vec<Positioned<Directive>>,
+    directives: &'a [Positioned<Directive>],
     selection_items: &'a Vec<Positioned<Selection>>,
     path: Option<&'a str>,
     name: &'a str,
@@ -738,11 +740,6 @@ fn get_join<'a>(
                                     key: pk.clone(),
                                     value: tag.value.clone(),
                                 });
-                            } else if is_single {
-                                new_tags.insert(Tag {
-                                    key: fk.clone(),
-                                    value: format!("{{{{{fk}}}}}"),
-                                });
                             } else {
                                 new_tags.insert(Tag {
                                     key: fk.clone(),
@@ -750,11 +747,6 @@ fn get_join<'a>(
                                 });
                             }
                         }
-                    } else if is_single {
-                        new_tags.insert(Tag {
-                            key: fk.clone(),
-                            value: format!("{{{{{fk}}}}}"),
-                        });
                     } else {
                         new_tags.insert(Tag {
                             key: fk.clone(),
@@ -898,7 +890,7 @@ fn get_join<'a>(
         distinct_order,
     );
     if is_aggregate {
-        let aggs = get_aggregate_projection(selection_items, format!("Agg_{name}"))?;
+        let aggs = get_aggregate_projection(selection_items, &format!("Agg_{name}"))?;
         Ok(Join {
             relation: TableFactor::Derived {
                 lateral: true,
@@ -1007,7 +999,7 @@ struct Merge {
 fn get_static<'a>(
     name: &'a str,
     directives: &Vec<Positioned<Directive>>,
-    sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    sql_vars: &'a IndexMap<Name, JsonValue>,
 ) -> AnyResult<Option<SelectItem>> {
     for p_directive in directives {
         let directive = &p_directive.node;
@@ -1045,7 +1037,7 @@ fn get_static<'a>(
     Ok(None)
 }
 
-fn parse_skip<'a>(directive: &'a Directive, sql_vars: &'a mut IndexMap<Name, JsonValue>) -> bool {
+fn parse_skip<'a>(directive: &'a Directive, sql_vars: &'a IndexMap<Name, JsonValue>) -> bool {
     if let Some((_, value_pos)) = directive.arguments.iter().find(|&arg| arg.0.node == "if") {
         let value = &value_pos.node;
         match value {
@@ -1054,7 +1046,7 @@ fn parse_skip<'a>(directive: &'a Directive, sql_vars: &'a mut IndexMap<Name, Jso
                     let var_value = sql_vars
                         .get(v)
                         .expect("variable not found, gaurded by contains");
-                    if let JsonValue::Static(StaticNode::Bool(b)) = var_value {
+                    if let JsonValue::Bool(b) = var_value {
                         return *b;
                     }
                     return false;
@@ -1072,7 +1064,7 @@ fn parse_skip<'a>(directive: &'a Directive, sql_vars: &'a mut IndexMap<Name, Jso
     false
 }
 
-fn has_skip<'a>(field: &'a Field, sql_vars: &'a mut IndexMap<Name, JsonValue>) -> bool {
+fn has_skip<'a>(field: &'a Field, sql_vars: &'a IndexMap<Name, JsonValue>) -> bool {
     if let Some(directive) = field
         .directives
         .iter()
@@ -1103,52 +1095,7 @@ fn get_projection<'a>(
                 if has_skip(field, sql_vars) {
                     continue;
                 }
-                if !field.selection_set.node.items.is_empty() {
-                    let mut hasher = DefaultHasher::new();
-                    let arg_bytes = simd_json::to_vec(&field.arguments)?;
-                    hasher.write(&arg_bytes);
-                    let hash_str = format!("{:x}", hasher.finish());
-                    let name = format!("join.{}.{}", field.name.node.as_ref(), &hash_str[..13]);
-                    let join = get_join(
-                        &field.arguments,
-                        &field.directives,
-                        &field.selection_set.node.items,
-                        path,
-                        &name,
-                        variables,
-                        sql_vars,
-                        final_vars,
-                        relation,
-                        tags,
-                    )?;
-                    joins.push(join);
-                    match &field.alias {
-                        Some(alias) => {
-                            projection.push(SelectItem::ExprWithAlias {
-                                expr: Expr::Identifier(Ident {
-                                    value: name,
-                                    quote_style: Some(QUOTE_CHAR),
-                                }),
-                                alias: Ident {
-                                    value: alias.node.to_string(),
-                                    quote_style: Some(QUOTE_CHAR),
-                                },
-                            });
-                        }
-                        None => {
-                            projection.push(SelectItem::ExprWithAlias {
-                                expr: Expr::Identifier(Ident {
-                                    value: name,
-                                    quote_style: Some(QUOTE_CHAR),
-                                }),
-                                alias: Ident {
-                                    value: field.name.node.to_string(),
-                                    quote_style: Some(QUOTE_CHAR),
-                                },
-                            });
-                        }
-                    }
-                } else {
+                if field.selection_set.node.items.is_empty() {
                     if let Some(value) = get_static(&field.name.node, &field.directives, sql_vars)?
                     {
                         projection.push(value);
@@ -1217,6 +1164,51 @@ fn get_projection<'a>(
                                     },
                                 )));
                             }
+                        }
+                    }
+                } else {
+                    let mut hasher = DefaultHasher::new();
+                    let arg_bytes = serde_json::to_vec(&field.arguments)?;
+                    hasher.write(&arg_bytes);
+                    let hash_str = format!("{:x}", hasher.finish());
+                    let name = format!("join.{}.{}", field.name.node.as_ref(), &hash_str[..13]);
+                    let join = get_join(
+                        &field.arguments,
+                        &field.directives,
+                        &field.selection_set.node.items,
+                        path,
+                        &name,
+                        variables,
+                        sql_vars,
+                        final_vars,
+                        relation,
+                        tags,
+                    )?;
+                    joins.push(join);
+                    match &field.alias {
+                        Some(alias) => {
+                            projection.push(SelectItem::ExprWithAlias {
+                                expr: Expr::Identifier(Ident {
+                                    value: name,
+                                    quote_style: Some(QUOTE_CHAR),
+                                }),
+                                alias: Ident {
+                                    value: alias.node.to_string(),
+                                    quote_style: Some(QUOTE_CHAR),
+                                },
+                            });
+                        }
+                        None => {
+                            projection.push(SelectItem::ExprWithAlias {
+                                expr: Expr::Identifier(Ident {
+                                    value: name,
+                                    quote_style: Some(QUOTE_CHAR),
+                                }),
+                                alias: Ident {
+                                    value: field.name.node.to_string(),
+                                    quote_style: Some(QUOTE_CHAR),
+                                },
+                            });
                         }
                     }
                 }
@@ -1289,7 +1281,6 @@ fn get_projection<'a>(
 fn value_to_string<'a>(
     value: &'a GqlValue,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
-    final_vars: &'a IndexSet<Name>,
 ) -> AnyResult<String> {
     let output = match value {
         GqlValue::String(s) => s.clone(),
@@ -1298,11 +1289,11 @@ fn value_to_string<'a>(
         GqlValue::Enum(e) => e.to_string(),
         GqlValue::List(l) => l
             .iter()
-            .map(|l| value_to_string(l, sql_vars, final_vars))
+            .map(|l| value_to_string(l, sql_vars))
             .collect::<AnyResult<Vec<String>>>()?
             .join(","),
         GqlValue::Null => "null".to_owned(),
-        GqlValue::Object(obj) => simd_json::to_string(obj).unwrap(),
+        GqlValue::Object(obj) => serde_json::to_string(obj).unwrap(),
         GqlValue::Variable(name) => {
             if let Some(value) = sql_vars.get(name) {
                 value.to_string()
@@ -1320,7 +1311,7 @@ fn value_to_string<'a>(
 fn get_relation<'a>(
     directives: &'a [Positioned<Directive>],
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
-    final_vars: &'a mut IndexSet<Name>,
+    _final_vars: &'a IndexSet<Name>,
 ) -> AnyResult<(
     String,
     Vec<String>,
@@ -1348,14 +1339,14 @@ fn get_relation<'a>(
                 let name = name.node.as_str();
                 let value = &value.node;
                 match name {
-                    "table" => relation = value_to_string(value, sql_vars, final_vars)?,
-                    "schema" => schema_name = Some(value_to_string(value, sql_vars, final_vars)?),
+                    "table" => relation = value_to_string(value, sql_vars)?,
+                    "schema" => schema_name = Some(value_to_string(value, sql_vars)?),
                     "field" | "fields" => {
                         fk = match &value {
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(|l| value_to_string(l, sql_vars, final_vars))
+                                .map(|l| value_to_string(l, sql_vars))
                                 .collect::<AnyResult<Vec<String>>>()?,
                             _ => {
                                 return Err(anyhow!("Invalid value for field in relation"));
@@ -1367,7 +1358,7 @@ fn get_relation<'a>(
                             GqlValue::String(s) => vec![s.clone()],
                             GqlValue::List(e) => e
                                 .iter()
-                                .map(|l| value_to_string(l, sql_vars, final_vars))
+                                .map(|l| value_to_string(l, sql_vars))
                                 .collect::<AnyResult<Vec<String>>>()?,
                             _ => {
                                 return Err(anyhow!("Invalid value for reference in relation"));
@@ -1540,12 +1531,10 @@ fn get_order<'a>(
         let direction = value_to_string(
             order.get("direction").unwrap_or(&GqlValue::Null),
             sql_vars,
-            final_vars,
         )?;
         let field = value_to_string(
             order.get("field").unwrap_or(&GqlValue::Null),
             sql_vars,
-            final_vars,
         )?;
         return Ok(vec![OrderByExpr {
             expr: Expr::Identifier(Ident {
@@ -1619,7 +1608,7 @@ fn get_order<'a>(
     for (key, mut value) in order {
         if let GqlValue::Variable(name) = value {
             if let Some(new_value) = variables.get(name) {
-                value = new_value
+                value = new_value;
             }
         }
         match value {
@@ -1665,7 +1654,7 @@ fn get_order<'a>(
     Ok(order_by)
 }
 
-fn get_distinct(distinct: Vec<GqlValue>) -> Option<Vec<String>> {
+fn get_distinct(distinct: &[GqlValue]) -> Option<Vec<String>> {
     let values: Vec<String> = distinct
         .iter()
         .filter_map(|v| match v {
@@ -1683,9 +1672,13 @@ fn get_distinct(distinct: Vec<GqlValue>) -> Option<Vec<String>> {
 
 fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValue>) -> GqlValue {
     match value {
-        JsonValue::Static(StaticNode::Null) => GqlValue::Null,
-        JsonValue::Static(s) => {
-            sql_vars.insert(name.clone(), JsonValue::Static(*s));
+        JsonValue::Null => GqlValue::Null,
+        JsonValue::Bool(s) => {
+            sql_vars.insert(name.clone(), JsonValue::Bool(*s));
+            GqlValue::Variable(name)
+        }
+        JsonValue::Number(s) => {
+            sql_vars.insert(name.clone(), JsonValue::Number(s.clone()));
             GqlValue::Variable(name)
         }
         JsonValue::String(s) => {
@@ -1708,7 +1701,7 @@ fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValu
         }
         JsonValue::Object(o) => {
             let mut out = IndexMap::with_capacity(o.len());
-            for (k, v) in o.iter() {
+            for (k, v) in o {
                 let new_name = format!("{name}_{k}");
                 let name = Name::new(new_name);
                 let key = Name::new(k);
@@ -1791,7 +1784,7 @@ fn parse_args<'a>(
             }
             ("distinct", GqlValue::Object(d)) => {
                 if let Some(GqlValue::List(list)) = d.get("on") {
-                    distinct = get_distinct(list.clone());
+                    distinct = get_distinct(list);
                 }
                 match d.get("order") {
                     Some(GqlValue::Object(order)) => {
@@ -2071,7 +2064,6 @@ pub fn parse_query_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool, Opt
     Ok((name, key, is_aggregate, is_single, schema_name))
 }
 
-#[must_use]
 pub fn parse_mutation_meta(
     field: &Field,
 ) -> AnyResult<(&str, &str, bool, bool, bool, bool, Option<&str>)> {
@@ -2315,7 +2307,7 @@ impl ToString for Tag {
     }
 }
 
-pub fn gql2sql<'a>(
+pub fn gql2sql(
     ast: ExecutableDocument,
     variables: &Option<JsonValue>,
     operation_name: Option<String>,
@@ -2351,7 +2343,7 @@ pub fn gql2sql<'a>(
                 match &selection.node {
                     Selection::Field(p_field) => {
                         let field = &p_field.node;
-                        if has_skip(field, &mut sql_vars) {
+                        if has_skip(field, &sql_vars) {
                             continue;
                         }
                         let (name, key, is_aggregate, is_single, schema_name) =
@@ -2404,7 +2396,7 @@ pub fn gql2sql<'a>(
                         if is_aggregate {
                             let aggs = get_aggregate_projection(
                                 &field.selection_set.node.items,
-                                format!("Agg_{name}"),
+                                &format!("Agg_{name}"),
                             )?;
                             statements.push((
                                 key,
@@ -2481,10 +2473,7 @@ pub fn gql2sql<'a>(
                             ));
                         };
                     }
-                    Selection::FragmentSpread(_) => {
-                        return Err(anyhow::anyhow!("Fragment not supported"))
-                    }
-                    Selection::InlineFragment(_) => {
+                    Selection::FragmentSpread(_) | Selection::InlineFragment(_) => {
                         return Err(anyhow::anyhow!("Fragment not supported"))
                     }
                 }
@@ -2766,10 +2755,7 @@ pub fn gql2sql<'a>(
                             ));
                         }
                     }
-                    Selection::FragmentSpread(_) => {
-                        return Err(anyhow::anyhow!("Fragment not supported"))
-                    }
-                    Selection::InlineFragment(_) => {
+                    Selection::FragmentSpread(_) | Selection::InlineFragment(_) => {
                         return Err(anyhow::anyhow!("Fragment not supported"))
                     }
                 }
@@ -2786,7 +2772,7 @@ mod tests {
     use async_graphql_parser::parse_query;
 
     use insta::assert_snapshot;
-    use simd_json::json;
+    use serde_json::json;
 
     #[test]
     fn simple() -> Result<(), anyhow::Error> {
@@ -3438,7 +3424,7 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
-        assert_snapshot!(simd_json::to_string_pretty(&params)?);
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
 
@@ -3501,7 +3487,7 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
-        assert_snapshot!(simd_json::to_string_pretty(&params)?);
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
     #[test]
@@ -3531,7 +3517,7 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
-        assert_snapshot!(simd_json::to_string_pretty(&params)?);
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
     #[test]
@@ -3653,8 +3639,8 @@ mod tests {
             None,
         )?;
 
-        println!("query: {}", statement);
-        println!("vars: {}", simd_json::to_string_pretty(&params)?);
+        println!("query: {statement}");
+        println!("vars: {}", serde_json::to_string_pretty(&params)?);
         // assert_snapshot!(statement.to_string());
         // assert_snapshot!();
         Ok(())

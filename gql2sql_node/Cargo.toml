@@ -1,5 +1,5 @@
 [package]
-authors = ["LongYinan <lynweklm@gmail.com>"]
+authors = ["Nick Randall <nick@brevity.io>"]
 edition = "2021"
 name = "gql2sql_node"
 version = "2.0.18"
@@ -13,19 +13,9 @@ serde = { version = "1.0", features = ["derive"] }
 napi = { version = "2", features = ["serde-json", "error_anyhow", "anyhow"] }
 napi-derive = "2"
 gql2sql = { path = "../gql2sql" }
-async-graphql-parser = "6.0.4"
+async-graphql-parser = "6.0.6"
 anyhow = "1.0.75"
-simd-json = "=0.10.5"
-
-[build]
-rustflags = ["-C", "target-cpu=native"]
-rustdocflags = ["-C", "target-cpu=native"]
-
-[target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+simd128"]
-
-[target.wasm32-wasi]
-rustflags = ["-C", "target-feature=+simd128"]
+serde_json = "1.0.106"
 
 [build-dependencies]
 napi-build = "2"
