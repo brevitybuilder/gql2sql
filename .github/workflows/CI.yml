@@ -243,7 +243,6 @@ jobs:
     needs:
       - test-linux-x64-gnu-binding
       - test-linux-x64-musl-binding
-      - test-linux-aarch64-gnu-binding
       - test-linux-aarch64-musl-binding
     if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.event_name == 'push' }}
     steps:
