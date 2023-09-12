@@ -23,19 +23,25 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
       - name: Install
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Test
-        run: RUSTFLAGS='-C target-feature=+simd128' wasm-pack test --chrome  --headless
+        run: RUSTFLAGS='-C target-feature=+simd128' wasm-pack test --chrome --headless
 
       - name: Build
         run: RUSTFLAGS='-C target-feature=+simd128' wasm-pack build --release --target web --scope brevity-builder
 
       - name: Publish
         if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.event_name == 'push' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
           cd pkg
           npm publish --access public
 
