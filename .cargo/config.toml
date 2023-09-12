@@ -1,13 +1,9 @@
 [build]
-rustflags = ["-C", "target-cpu=native", "target-feature=+simd128"]
-rustdocflags = ["-C", "target-cpu=native", "target-feature=+simd128"]
+rustflags = ["-C", "target-cpu=native"]
+rustdocflags = ["-C", "target-cpu=native"]
 
 [target.x86_64-unknown-linux-musl]
-rustflags = [ "-C", "target-cpu=native", "target-feature=-crt-static", "target-feature=+simd128"]
-
-[target.aarch64-unknown-linux-musl]
-linker = "aarch64-linux-musl-gcc"
-rustflags = ["-C", "target-cpu=native", "target-feature=-crt-static", "target-feature=+simd128"]
+rustflags = [ "-C", "target-feature=-crt-static,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2"]
 
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "target-feature=+simd128"]
