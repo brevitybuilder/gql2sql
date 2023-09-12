@@ -25,7 +25,7 @@ pub fn gql2sql(mut args: String) -> anyhow::Result<String> {
     query,
     variables,
     operation_name,
-  } =  serde_json::from_str(&mut args)?;
+  } = serde_json::from_str(&mut args)?;
   let ast = parse_query(query)?;
   let (sql, params, tags) = gql2sql_rs(ast, &variables, operation_name)?;
   let result = GqlResult {

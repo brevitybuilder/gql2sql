@@ -33,6 +33,7 @@ jobs:
         run: RUSTFLAGS='-C target-feature=+simd128' wasm-pack build --release --target web --scope brevity-builder
 
       - name: Publish
+        if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.event_name == 'push' }}
         run: |
           echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
           cd pkg
