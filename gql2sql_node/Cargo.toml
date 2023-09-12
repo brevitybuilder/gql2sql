@@ -15,7 +15,7 @@ napi-derive = "2"
 gql2sql = { path = "../gql2sql" }
 async-graphql-parser = "6.0.4"
 anyhow = "1.0.75"
-simd-json = "=0.10.5"
+simd-json = "=0.10.7"
 
 [build]
 rustflags = ["-C", "target-cpu=native"]
