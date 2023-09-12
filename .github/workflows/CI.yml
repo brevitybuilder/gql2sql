@@ -198,50 +198,6 @@ jobs:
       - name: Test bindings
         working-directory: gql2sql_node
         run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-alpine yarn test
-  test-linux-aarch64-gnu-binding:
-    name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
-    needs:
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        node:
-          - '20'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Reset
-        working-directory: .
-        run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
-      - uses: actions/checkout@v3
-      - name: Download artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: bindings-aarch64-unknown-linux-gnu
-          path: gql2sql_node
-      - name: List packages
-        working-directory: gql2sql_node
-        run: ls -R .
-        shell: bash
-      - name: Cache NPM dependencies
-        uses: actions/cache@v3
-        with:
-          path: .yarn/cache
-          key: npm-cache-test-linux-aarch64-gnu-${{ matrix.node }}
-      - name: Install dependencies
-        working-directory: gql2sql_node
-        run: |
-          yarn config set supportedArchitectures.cpu "arm64"
-          yarn config set supportedArchitectures.libc "glibc"
-          yarn install
-      - name: Setup and run tests
-        uses: addnab/docker-run-action@v3
-        with:
-          image: ghcr.io/napi-rs/napi-rs/nodejs:aarch64-${{ matrix.node }}
-          options: '-v ${{ github.workspace }}:/build -w /build/gql2sql_node'
-          run: |
-            set -e
-            yarn test
-            ls -la
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
     needs:
