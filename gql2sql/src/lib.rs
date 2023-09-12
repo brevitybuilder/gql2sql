@@ -1616,7 +1616,7 @@ fn get_order<'a>(
     for (key, mut value) in order {
         if let GqlValue::Variable(name) = value {
             if let Some(new_value) = variables.get(name) {
-                value = new_value
+                value = new_value;
             }
         }
         match value {
@@ -1709,7 +1709,7 @@ fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValu
         }
         JsonValue::Object(o) => {
             let mut out = IndexMap::with_capacity(o.len());
-            for (k, v) in o.iter() {
+            for (k, v) in o {
                 let new_name = format!("{name}_{k}");
                 let name = Name::new(new_name);
                 let key = Name::new(k);
@@ -3654,7 +3654,7 @@ mod tests {
             None,
         )?;
 
-        println!("query: {}", statement);
+        println!("query: {statement}");
         println!("vars: {}", serde_json::to_string_pretty(&params)?);
         // assert_snapshot!(statement.to_string());
         // assert_snapshot!();
