@@ -33,13 +33,3 @@ opt-level = 3
 
 [profile.dev.package.similar]
 opt-level = 3
-
-[build]
-rustflags = ["-C", "target-cpu=native"]
-rustdocflags = ["-C", "target-cpu=native"]
-
-[target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+simd128"]
-
-[target.wasm32-wasi]
-rustflags = ["-C", "target-feature=+simd128"]
