@@ -56,10 +56,42 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@brevity-builder/gql2sql-darwin-arm64@npm:2.0.7":
+  version: 2.0.7
+  resolution: "@brevity-builder/gql2sql-darwin-arm64@npm:2.0.7"
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: hard
+
+"@brevity-builder/gql2sql-darwin-x64@npm:1.0.9":
+  version: 1.0.9
+  resolution: "@brevity-builder/gql2sql-darwin-x64@npm:1.0.9"
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@brevity-builder/gql2sql-linux-x64-gnu@npm:2.0.15":
+  version: 2.0.15
+  resolution: "@brevity-builder/gql2sql-linux-x64-gnu@npm:2.0.15"
+  conditions: os=linux & cpu=x64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@brevity-builder/gql2sql-linux-x64-musl@npm:2.0.7":
+  version: 2.0.7
+  resolution: "@brevity-builder/gql2sql-linux-x64-musl@npm:2.0.7"
+  conditions: os=linux & cpu=x64 & libc=musl
+  languageName: node
+  linkType: hard
+
 "@brevity-builder/gql2sql@workspace:.":
   version: 0.0.0-use.local
   resolution: "@brevity-builder/gql2sql@workspace:."
   dependencies:
+    "@brevity-builder/gql2sql-darwin-arm64": 2.0.7
+    "@brevity-builder/gql2sql-darwin-x64": 1.0.9
+    "@brevity-builder/gql2sql-linux-x64-gnu": 2.0.15
+    "@brevity-builder/gql2sql-linux-x64-musl": 2.0.7
     "@napi-rs/cli": ^2.16.3
     "@swc-node/register": ^1.6.7
     "@swc/core": ^1.3.84
@@ -78,6 +110,15 @@ __metadata:
     npm-run-all: ^4.1.5
     prettier: ^3.0.3
     typescript: ^5.2.2
+  dependenciesMeta:
+    "@brevity-builder/gql2sql-darwin-arm64":
+      optional: true
+    "@brevity-builder/gql2sql-darwin-x64":
+      optional: true
+    "@brevity-builder/gql2sql-linux-x64-gnu":
+      optional: true
+    "@brevity-builder/gql2sql-linux-x64-musl":
+      optional: true
   languageName: unknown
   linkType: soft
 
