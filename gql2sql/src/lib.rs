@@ -1528,14 +1528,9 @@ fn get_order<'a>(
     final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<Vec<OrderByExpr>> {
     if order.contains_key("field") && order.contains_key("direction") {
-        let direction = value_to_string(
-            order.get("direction").unwrap_or(&GqlValue::Null),
-            sql_vars,
-        )?;
-        let field = value_to_string(
-            order.get("field").unwrap_or(&GqlValue::Null),
-            sql_vars,
-        )?;
+        let direction =
+            value_to_string(order.get("direction").unwrap_or(&GqlValue::Null), sql_vars)?;
+        let field = value_to_string(order.get("field").unwrap_or(&GqlValue::Null), sql_vars)?;
         return Ok(vec![OrderByExpr {
             expr: Expr::Identifier(Ident {
                 value: field.clone(),
