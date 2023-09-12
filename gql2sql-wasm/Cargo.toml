@@ -26,7 +26,7 @@ wee_alloc = { version = "0.4.5", optional = true }
 gql2sql = { path = "../gql2sql" }
 serde = { version = "1.0.188", features = ["derive"] }
 async-graphql-parser = "6.0.6"
-simd-json = "=0.10.7"
+serde_json = "1.0.106"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.37"

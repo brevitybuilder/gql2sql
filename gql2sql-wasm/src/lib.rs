@@ -3,7 +3,7 @@ mod utils;
 use async_graphql_parser::parse_query;
 use gql2sql::{detect_date, gql2sql as gql2sql_rs};
 use serde::{Deserialize, Serialize};
-use simd_json::OwnedValue as Value;
+use serde_json::Value;
 use utils::set_panic_hook;
 use wasm_bindgen::prelude::*;
 
@@ -32,7 +32,7 @@ pub fn gql2sql(mut args: String) -> Result<String, JsError> {
         query,
         variables,
         operation_name,
-    } = unsafe { simd_json::from_str(&mut args)? };
+    } = serde_json::from_str(&mut args)?;
     let ast = parse_query(query)?;
     let (sql, params, tags) =
         gql2sql_rs(ast, &variables, operation_name).map_err(|e| JsError::new(&e.to_string()))?;
@@ -46,9 +46,11 @@ pub fn gql2sql(mut args: String) -> Result<String, JsError> {
                         Value::String(s)
                     }
                 }
-                Value::Static(s) => Value::Static(s),
-                Value::Object(obj) => Value::String(simd_json::to_string(&obj).unwrap()),
-                Value::Array(list) => Value::String(simd_json::to_string(&list).unwrap()),
+                Value::Null => Value::Null,
+                Value::Number(s) => Value::Number(s),
+                Value::Bool(s) => Value::Bool(s),
+                Value::Object(obj) => Value::String(serde_json::to_string(&obj).unwrap()),
+                Value::Array(list) => Value::String(serde_json::to_string(&list).unwrap()),
             })
             .collect()
     });
@@ -57,5 +59,5 @@ pub fn gql2sql(mut args: String) -> Result<String, JsError> {
         params,
         tags,
     };
-    Ok(simd_json::to_string(&result)?)
+    Ok(serde_json::to_string(&result)?)
 }

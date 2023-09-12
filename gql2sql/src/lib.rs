@@ -18,7 +18,6 @@ use async_graphql_value::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use simd_json::StaticNode;
 use sqlparser::ast::{
     Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
     Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
@@ -32,7 +31,7 @@ use std::{
     iter::zip,
 };
 
-type JsonValue = simd_json::OwnedValue;
+type JsonValue = serde_json::Value;
 type AnyResult<T> = anyhow::Result<T>;
 
 #[must_use]
@@ -62,11 +61,9 @@ pub fn detect_date(text: &str) -> Option<String> {
 
 fn value_to_type(value: &JsonValue) -> String {
     match value {
-        JsonValue::Static(StaticNode::Null) => String::new(),
-        JsonValue::Static(StaticNode::Bool(_)) => "::boolean".to_owned(),
-        JsonValue::Static(StaticNode::I64(_)) => "::numeric".to_owned(),
-        JsonValue::Static(StaticNode::U64(_)) => "::numeric".to_owned(),
-        JsonValue::Static(StaticNode::F64(_)) => "::numeric".to_owned(),
+        JsonValue::Null => String::new(),
+        JsonValue::Bool(_) => "::boolean".to_owned(),
+        JsonValue::Number(_) => "::numeric".to_owned(),
         JsonValue::String(s) => {
             if detect_date(s).is_some() {
                 "::timestamptz".to_owned()
@@ -90,7 +87,7 @@ fn get_value<'a>(
                 let var_value = sql_vars
                     .get(v)
                     .expect("variable not found, gaurded by contains");
-                if let JsonValue::Static(StaticNode::Null) = var_value {
+                if let JsonValue::Null = var_value {
                     return Ok(Expr::Value(Value::Null));
                 }
                 let param_cast = value_to_type(var_value);
@@ -1054,7 +1051,7 @@ fn parse_skip<'a>(directive: &'a Directive, sql_vars: &'a mut IndexMap<Name, Jso
                     let var_value = sql_vars
                         .get(v)
                         .expect("variable not found, gaurded by contains");
-                    if let JsonValue::Static(StaticNode::Bool(b)) = var_value {
+                    if let JsonValue::Bool(b) = var_value {
                         return *b;
                     }
                     return false;
@@ -1105,7 +1102,7 @@ fn get_projection<'a>(
                 }
                 if !field.selection_set.node.items.is_empty() {
                     let mut hasher = DefaultHasher::new();
-                    let arg_bytes = simd_json::to_vec(&field.arguments)?;
+                    let arg_bytes = serde_json::to_vec(&field.arguments)?;
                     hasher.write(&arg_bytes);
                     let hash_str = format!("{:x}", hasher.finish());
                     let name = format!("join.{}.{}", field.name.node.as_ref(), &hash_str[..13]);
@@ -1302,7 +1299,7 @@ fn value_to_string<'a>(
             .collect::<AnyResult<Vec<String>>>()?
             .join(","),
         GqlValue::Null => "null".to_owned(),
-        GqlValue::Object(obj) => simd_json::to_string(obj).unwrap(),
+        GqlValue::Object(obj) => serde_json::to_string(obj).unwrap(),
         GqlValue::Variable(name) => {
             if let Some(value) = sql_vars.get(name) {
                 value.to_string()
@@ -1683,9 +1680,13 @@ fn get_distinct(distinct: Vec<GqlValue>) -> Option<Vec<String>> {
 
 fn flatten(name: Name, value: &JsonValue, sql_vars: &mut IndexMap<Name, JsonValue>) -> GqlValue {
     match value {
-        JsonValue::Static(StaticNode::Null) => GqlValue::Null,
-        JsonValue::Static(s) => {
-            sql_vars.insert(name.clone(), JsonValue::Static(*s));
+        JsonValue::Null => GqlValue::Null,
+        JsonValue::Bool(s) => {
+            sql_vars.insert(name.clone(), JsonValue::Bool(*s));
+            GqlValue::Variable(name)
+        }
+        JsonValue::Number(s) => {
+            sql_vars.insert(name.clone(), JsonValue::Number(s.clone()));
             GqlValue::Variable(name)
         }
         JsonValue::String(s) => {
@@ -2786,7 +2787,7 @@ mod tests {
     use async_graphql_parser::parse_query;
 
     use insta::assert_snapshot;
-    use simd_json::json;
+    use serde_json::json;
 
     #[test]
     fn simple() -> Result<(), anyhow::Error> {
@@ -3438,7 +3439,7 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
-        assert_snapshot!(simd_json::to_string_pretty(&params)?);
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
 
@@ -3501,7 +3502,7 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
-        assert_snapshot!(simd_json::to_string_pretty(&params)?);
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
     #[test]
@@ -3531,7 +3532,7 @@ mod tests {
             None,
         )?;
         assert_snapshot!(statement.to_string());
-        assert_snapshot!(simd_json::to_string_pretty(&params)?);
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
     #[test]
@@ -3654,7 +3655,7 @@ mod tests {
         )?;
 
         println!("query: {}", statement);
-        println!("vars: {}", simd_json::to_string_pretty(&params)?);
+        println!("vars: {}", serde_json::to_string_pretty(&params)?);
         // assert_snapshot!(statement.to_string());
         // assert_snapshot!();
         Ok(())
