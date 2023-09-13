@@ -1296,7 +1296,10 @@ fn value_to_string<'a>(
         GqlValue::Object(obj) => serde_json::to_string(obj).unwrap(),
         GqlValue::Variable(name) => {
             if let Some(value) = sql_vars.get(name) {
-                value.to_string()
+                match value {
+                    JsonValue::String(s) => s.clone(),
+                    _ => value.to_string(),
+                }
             } else {
                 return Err(anyhow!("Variable {} is not defined", name));
             }
@@ -3519,117 +3522,153 @@ mod tests {
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-                query BrevityQuery($order_edygtVPcdhLyKaaCThy4y_id: [FiQVntdENFUmLFJRATRGJ_Order], $filter_getUserById: UserFilter!) {
-                getUserById(filter: $filter_getUserById) @meta(table: "User", single: true, display: "Get User by Id") {
-                    id
-                    PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "bQk9eeeaMqFUDfrcXY6er", fields: ["id"], single: true, references: ["PmxFDD3Wj9FDj6hE6fWfF_id"]) {
-                    nwJLQ3QhXAJjygAGwYPQp
-                    LaJqNrrQRDLgRqz4JjEDX
-                    raw: edygtVPcdhLyKaaCThy4y_id @relation(table: "FiQVntdENFUmLFJRATRGJ", fields: ["edygtVPcdhLyKaaCThy4y_id"], references: ["id"]) {
-                        id
-                        created_at
-                        updated_at
-                        MdweVdWiMPnnJgqa7xHQf
-                        dQ9dzGxxdHye3Rbwa8737
-                        g6Q734iqF39AL3FNkfVn9
-                        gmXDgDza8d7iHcxxycyQf
-                        jMgUaKjdbzFmMteM7DEfR
-                        r6eqdbkkyGH3zArgMjN66
-                        ketefetGKNwQQTyEPhHUQ_id @relation(table: "User", fields: ["id"], single: true, references: ["ketefetGKNwQQTyEPhHUQ_id"]) {
-                        id
-                        PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "bQk9eeeaMqFUDfrcXY6er", fields: ["id"], single: true, references: ["PmxFDD3Wj9FDj6hE6fWfF_id"]) {
-                            id
-                            __typename
-                        }
-                        name
-                        email
-                        created_at
-                        updated_at
-                        profile_image_url
-                        }
-                        dqyK3yhWrRdhJJdbhTYwD_F4EigxCrBdrgrVCkBCTn3_id_fkey_rA @relation(table: "dqyK3yhWrRdhJJdbhTYwD", fields: ["F4EigxCrBdrgrVCkBCTn3_id"], aggregate: true, references: ["id"]) {
-                        count
-                        }
-                    }
-                    id
-                    created_at
-                    updated_at
-                    edygtVPcdhLyKaaCThy4y_id(order: $order_edygtVPcdhLyKaaCThy4y_id) @relation(table: "FiQVntdENFUmLFJRATRGJ", fields: ["edygtVPcdhLyKaaCThy4y_id"], references: ["id"]) {
-                        id
-                        created_at
-                        updated_at
-                        MdweVdWiMPnnJgqa7xHQf
-                        dQ9dzGxxdHye3Rbwa8737
-                        g6Q734iqF39AL3FNkfVn9
-                        gmXDgDza8d7iHcxxycyQf
-                        jMgUaKjdbzFmMteM7DEfR
-                        r6eqdbkkyGH3zArgMjN66
-                        ketefetGKNwQQTyEPhHUQ_id @relation(table: "User", fields: ["id"], single: true, references: ["ketefetGKNwQQTyEPhHUQ_id"]) {
-                        id
-                        PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "bQk9eeeaMqFUDfrcXY6er", fields: ["id"], single: true, references: ["PmxFDD3Wj9FDj6hE6fWfF_id"]) {
-                            id
-                            __typename
-                        }
-                        name
-                        email
-                        created_at
-                        updated_at
-                        profile_image_url
-                        }
-                        dqyK3yhWrRdhJJdbhTYwD_F4EigxCrBdrgrVCkBCTn3_id_fkey_rA @relation(table: "dqyK3yhWrRdhJJdbhTYwD", fields: ["F4EigxCrBdrgrVCkBCTn3_id"], aggregate: true, references: ["id"]) {
-                        count
-                        }
-                    }
-                    PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "User", fields: ["PmxFDD3Wj9FDj6hE6fWfF_id"], references: ["id"]) {
-                        id
-                        PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "bQk9eeeaMqFUDfrcXY6er", fields: ["id"], single: true, references: ["PmxFDD3Wj9FDj6hE6fWfF_id"]) {
-                        nwJLQ3QhXAJjygAGwYPQp
-                        LaJqNrrQRDLgRqz4JjEDX
-                        raw: edygtVPcdhLyKaaCThy4y_id @relation(table: "FiQVntdENFUmLFJRATRGJ", fields: ["edygtVPcdhLyKaaCThy4y_id"], references: ["id"]) {
-                            id
-                            __typename
-                        }
-                        id
-                        created_at
-                        updated_at
-                        edygtVPcdhLyKaaCThy4y_id(order: $order_edygtVPcdhLyKaaCThy4y_id) @relation(table: "FiQVntdENFUmLFJRATRGJ", fields: ["edygtVPcdhLyKaaCThy4y_id"], references: ["id"]) {
-                            id
-                            __typename
-                        }
-                        PmxFDD3Wj9FDj6hE6fWfF_id @relation(table: "User", fields: ["PmxFDD3Wj9FDj6hE6fWfF_id"], references: ["id"]) {
-                            id
-                            __typename
-                        }
-                        }
-                        name
-                        email
-                        created_at
-                        updated_at
-                        profile_image_url
-                    }
-                    }
-                    name
-                    email
-                    created_at
-                    updated_at
-                    profile_image_url
-                }
-                }
+query BrevityQuery($filter_currentUser: UserFilter!, $first_getUserList: undefined, $order_getUserList: [User_Order], $filter_getUserList: User_Filter, $if_getUserById_skip: Boolean!, $id_getUserById: ID) {
+  currentUser: getUserById(filter: $filter_currentUser) @meta(table: "User", single: true, display: "Get User by Id") {
+    r7gaED9qE9iffiHFDrWgd_id @relation(table: "erYdN96kHbeFqPQaVkCGV", fields: ["id"], single: true, references: ["r7gaED9qE9iffiHFDrWgd_id"]) {
+      aKaUFf8kFbrwigiL8tyVE
+      wtQBcMCe4nfkbjFKhtkep
+      id
+      created_at
+      updated_at
+    }
+    id
+    name
+    email
+    created_at
+    updated_at
+    profile_image_url
+    CiwQrQBVEVLA8KxRy9DRg
+    Dm4GtyCXy8k4nErPgdnxL
+    HgkhmPADeLFVUJg9R8hyE
+    JDgriiK6h4aadeKA7b3ie
+    MbjVbQ4fzQzyXeyBBNrnp
+    Q6wT4Ha9RCDa8nrhrPymr
+    RDnLqdDNBDBVWRN86mGxT
+    UdXLT8yP8UREVkA6bT8z7
+    bFQrFinQMFNMDHqWHJgyt
+    bKCRGe7m6wbhPb9iXaqh6
+    gHeHiTEdtLh64Q9AhGNhb
+    jDAC73QViKa9bBTeDYJU3
+    pddbaDkJehCcChd8hhQhC
+    rQGwBKJpMErLe76V94k3B
+    yjGeRE3TTyGG3qxRPADG3
+    kDEQCYDzAwyyM8GBJH6QD_id @relation(table: "ECGxBMFQB4inFAgbdPfD8", fields: ["id"], single: true, references: ["kDEQCYDzAwyyM8GBJH6QD_id"]) {
+      ktrnJXPTkAgwx4mzGzGmL
+      apaNPYVxmxzwXztLe7Nnj
+      id
+      created_at
+      updated_at
+      Qig4WqtRMtJbjBHUcpFPN
+      ywDQnyiyXa9bhzrdYaUt7
+    }
+  }
+  getUserList(
+    first: $first_getUserList
+    order: $order_getUserList
+    filter: $filter_getUserList
+  ) @meta(table: "User", display: "Get List of User") {
+    r7gaED9qE9iffiHFDrWgd_id @relation(table: "erYdN96kHbeFqPQaVkCGV", fields: ["id"], single: true, references: ["r7gaED9qE9iffiHFDrWgd_id"]) {
+      aKaUFf8kFbrwigiL8tyVE
+      wtQBcMCe4nfkbjFKhtkep
+      id
+      created_at
+      updated_at
+    }
+    id
+    name
+    email
+    created_at
+    updated_at
+    profile_image_url
+    CiwQrQBVEVLA8KxRy9DRg
+    Dm4GtyCXy8k4nErPgdnxL
+    HgkhmPADeLFVUJg9R8hyE
+    JDgriiK6h4aadeKA7b3ie
+    MbjVbQ4fzQzyXeyBBNrnp
+    Q6wT4Ha9RCDa8nrhrPymr
+    RDnLqdDNBDBVWRN86mGxT
+    UdXLT8yP8UREVkA6bT8z7
+    bFQrFinQMFNMDHqWHJgyt
+    bKCRGe7m6wbhPb9iXaqh6
+    gHeHiTEdtLh64Q9AhGNhb
+    jDAC73QViKa9bBTeDYJU3
+    pddbaDkJehCcChd8hhQhC
+    rQGwBKJpMErLe76V94k3B
+    yjGeRE3TTyGG3qxRPADG3
+    kDEQCYDzAwyyM8GBJH6QD_id @relation(table: "ECGxBMFQB4inFAgbdPfD8", fields: ["id"], single: true, references: ["kDEQCYDzAwyyM8GBJH6QD_id"]) {
+      ktrnJXPTkAgwx4mzGzGmL
+      apaNPYVxmxzwXztLe7Nnj
+      id
+      created_at
+      updated_at
+      Qig4WqtRMtJbjBHUcpFPN
+      ywDQnyiyXa9bhzrdYaUt7
+    }
+  }
+  getUserById(id: $id_getUserById) @meta(table: "User", single: true, display: "Get User by Id") @skip(if: $if_getUserById_skip) {
+    r7gaED9qE9iffiHFDrWgd_id @relation(table: "erYdN96kHbeFqPQaVkCGV", fields: ["id"], single: true, references: ["r7gaED9qE9iffiHFDrWgd_id"]) {
+      aKaUFf8kFbrwigiL8tyVE
+      wtQBcMCe4nfkbjFKhtkep
+      id
+      created_at
+      updated_at
+    }
+    id
+    name
+    email
+    created_at
+    updated_at
+    profile_image_url
+    CiwQrQBVEVLA8KxRy9DRg
+    Dm4GtyCXy8k4nErPgdnxL
+    HgkhmPADeLFVUJg9R8hyE
+    JDgriiK6h4aadeKA7b3ie
+    MbjVbQ4fzQzyXeyBBNrnp
+    Q6wT4Ha9RCDa8nrhrPymr
+    RDnLqdDNBDBVWRN86mGxT
+    UdXLT8yP8UREVkA6bT8z7
+    bFQrFinQMFNMDHqWHJgyt
+    bKCRGe7m6wbhPb9iXaqh6
+    gHeHiTEdtLh64Q9AhGNhb
+    jDAC73QViKa9bBTeDYJU3
+    pddbaDkJehCcChd8hhQhC
+    rQGwBKJpMErLe76V94k3B
+    yjGeRE3TTyGG3qxRPADG3
+    kDEQCYDzAwyyM8GBJH6QD_id @relation(table: "ECGxBMFQB4inFAgbdPfD8", fields: ["id"], single: true, references: ["kDEQCYDzAwyyM8GBJH6QD_id"]) {
+      ktrnJXPTkAgwx4mzGzGmL
+      apaNPYVxmxzwXztLe7Nnj
+      id
+      created_at
+      updated_at
+      Qig4WqtRMtJbjBHUcpFPN
+      ywDQnyiyXa9bhzrdYaUt7
+    }
+  }
+}
             "#,
         )?;
         let (statement, params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
-              "order_edygtVPcdhLyKaaCThy4y_id": [
-                {
-                  "created_at": "ASC"
-                }
-              ],
-              "filter_getUserById": {
-                "field": "id",
-                "operator": "eq",
-                "value": "hC8azGq9EeGAjt67BWDbm"
-              }
+                "filter_currentUser": {
+                  "field": "id",
+                  "operator": "eq"
+                },
+                "first_getUserList": 100,
+                "order_getUserList": [
+                  {
+                    "field": "created_at",
+                    "direction": "DESC"
+                  }
+                ],
+                "filter_getUserList": {
+                  "field": "rQGwBKJpMErLe76V94k3B",
+                  "value": true,
+                  "operator": "eq",
+                  "logicalOperator": "AND"
+                },
+                "if_getUserById_skip": true,
+                "id_getUserById": ""
             })),
             None,
         )?;
