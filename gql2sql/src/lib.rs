@@ -206,6 +206,8 @@ fn get_expr<'a>(
             pattern: Box::new(right_value),
             escape_char: None,
         })),
+        "null" => Ok(Some(Expr::IsNull(Box::new(left)))),
+        "not_null" => Ok(Some(Expr::IsNull(Box::new(left)))),
         _ => {
             let op = get_op(operator);
             if let Expr::Value(Value::Null) = right_value {
