@@ -2,7 +2,7 @@
 authors = ["Nick Randall <nick@brevity.io>"]
 edition = "2021"
 name = "gql2sql_node"
-version = "2.0.24"
+version = "2.0.25"
 publish = false
 
 [lib]
