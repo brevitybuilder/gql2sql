@@ -17,7 +17,7 @@ sqlparser = "0.37"
 indexmap = "2.0.0"
 lazy_static = "1.4.0"
 regex = "1.9.5"
-serde_json = "1.0.106"
+serde_json = "1.0.107"
 
 [dev-dependencies]
 criterion = "0.5"
