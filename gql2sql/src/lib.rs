@@ -1766,7 +1766,7 @@ fn parse_args<'a>(
             }
         }
         match (key, value) {
-            ("id" | "email", value) => {
+            ("id" | "email" | "A" | "B", value) => {
                 selection = get_expr(
                     Expr::Identifier(Ident {
                         value: key.to_string(),
@@ -1963,8 +1963,8 @@ fn get_mutation_assignments<'a>(
             }
         }
         match (key.as_ref(), value) {
-            ("id" | "email", value) => {
-                selection = get_expr(
+            ("id" | "email" | "A" | "B", value) => {
+                let new_selection = get_expr(
                     Expr::Identifier(Ident {
                         value: key.to_string(),
                         quote_style: Some(QUOTE_CHAR),
@@ -1974,6 +1974,15 @@ fn get_mutation_assignments<'a>(
                     sql_vars,
                     final_vars,
                 )?;
+                if selection.is_some() && new_selection.is_some() {
+                    selection = Some(Expr::BinaryOp {
+                        left: Box::new(selection.expect("gaurded by condition")),
+                        op: BinaryOperator::And,
+                        right: Box::new(new_selection.expect("gaurded by condition")),
+                    });
+                } else {
+                    selection = new_selection;
+                }
             }
             ("filter" | "where", GqlValue::Object(filter)) => {
                 (selection, _) = get_filter(filter, sql_vars, final_vars)?;
@@ -3524,127 +3533,21 @@ mod tests {
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-query BrevityQuery($filter_currentUser: UserFilter!, $first_getUserList: undefined, $order_getUserList: [User_Order], $filter_getUserList: User_Filter, $if_getUserById_skip: Boolean!, $id_getUserById: ID) {
-  currentUser: getUserById(filter: $filter_currentUser) @meta(table: "User", single: true, display: "Get User by Id") {
-    r7gaED9qE9iffiHFDrWgd_id @relation(table: "erYdN96kHbeFqPQaVkCGV", fields: ["id"], single: true, references: ["r7gaED9qE9iffiHFDrWgd_id"]) {
-      aKaUFf8kFbrwigiL8tyVE
-      wtQBcMCe4nfkbjFKhtkep
-      id
-      created_at
-      updated_at
-    }
-    id
-    name
-    email
-    created_at
-    updated_at
-    profile_image_url
-    CiwQrQBVEVLA8KxRy9DRg
-    Dm4GtyCXy8k4nErPgdnxL
-    HgkhmPADeLFVUJg9R8hyE
-    JDgriiK6h4aadeKA7b3ie
-    MbjVbQ4fzQzyXeyBBNrnp
-    Q6wT4Ha9RCDa8nrhrPymr
-    RDnLqdDNBDBVWRN86mGxT
-    UdXLT8yP8UREVkA6bT8z7
-    bFQrFinQMFNMDHqWHJgyt
-    bKCRGe7m6wbhPb9iXaqh6
-    gHeHiTEdtLh64Q9AhGNhb
-    jDAC73QViKa9bBTeDYJU3
-    pddbaDkJehCcChd8hhQhC
-    rQGwBKJpMErLe76V94k3B
-    yjGeRE3TTyGG3qxRPADG3
-    kDEQCYDzAwyyM8GBJH6QD_id @relation(table: "ECGxBMFQB4inFAgbdPfD8", fields: ["id"], single: true, references: ["kDEQCYDzAwyyM8GBJH6QD_id"]) {
-      ktrnJXPTkAgwx4mzGzGmL
-      apaNPYVxmxzwXztLe7Nnj
-      id
-      created_at
-      updated_at
-      Qig4WqtRMtJbjBHUcpFPN
-      ywDQnyiyXa9bhzrdYaUt7
-    }
-  }
-  getUserList(
-    first: $first_getUserList
-    order: $order_getUserList
-    filter: $filter_getUserList
-  ) @meta(table: "User", display: "Get List of User") {
-    r7gaED9qE9iffiHFDrWgd_id @relation(table: "erYdN96kHbeFqPQaVkCGV", fields: ["id"], single: true, references: ["r7gaED9qE9iffiHFDrWgd_id"]) {
-      aKaUFf8kFbrwigiL8tyVE
-      wtQBcMCe4nfkbjFKhtkep
-      id
-      created_at
-      updated_at
-    }
-    id
-    name
-    email
-    created_at
-    updated_at
-    profile_image_url
-    CiwQrQBVEVLA8KxRy9DRg
-    Dm4GtyCXy8k4nErPgdnxL
-    HgkhmPADeLFVUJg9R8hyE
-    JDgriiK6h4aadeKA7b3ie
-    MbjVbQ4fzQzyXeyBBNrnp
-    Q6wT4Ha9RCDa8nrhrPymr
-    RDnLqdDNBDBVWRN86mGxT
-    UdXLT8yP8UREVkA6bT8z7
-    bFQrFinQMFNMDHqWHJgyt
-    bKCRGe7m6wbhPb9iXaqh6
-    gHeHiTEdtLh64Q9AhGNhb
-    jDAC73QViKa9bBTeDYJU3
-    pddbaDkJehCcChd8hhQhC
-    rQGwBKJpMErLe76V94k3B
-    yjGeRE3TTyGG3qxRPADG3
-    kDEQCYDzAwyyM8GBJH6QD_id @relation(table: "ECGxBMFQB4inFAgbdPfD8", fields: ["id"], single: true, references: ["kDEQCYDzAwyyM8GBJH6QD_id"]) {
-      ktrnJXPTkAgwx4mzGzGmL
-      apaNPYVxmxzwXztLe7Nnj
-      id
-      created_at
-      updated_at
-      Qig4WqtRMtJbjBHUcpFPN
-      ywDQnyiyXa9bhzrdYaUt7
-    }
-  }
-  getUserById(id: $id_getUserById) @meta(table: "User", single: true, display: "Get User by Id") @skip(if: $if_getUserById_skip) {
-    r7gaED9qE9iffiHFDrWgd_id @relation(table: "erYdN96kHbeFqPQaVkCGV", fields: ["id"], single: true, references: ["r7gaED9qE9iffiHFDrWgd_id"]) {
-      aKaUFf8kFbrwigiL8tyVE
-      wtQBcMCe4nfkbjFKhtkep
-      id
-      created_at
-      updated_at
-    }
-    id
-    name
-    email
-    created_at
-    updated_at
-    profile_image_url
-    CiwQrQBVEVLA8KxRy9DRg
-    Dm4GtyCXy8k4nErPgdnxL
-    HgkhmPADeLFVUJg9R8hyE
-    JDgriiK6h4aadeKA7b3ie
-    MbjVbQ4fzQzyXeyBBNrnp
-    Q6wT4Ha9RCDa8nrhrPymr
-    RDnLqdDNBDBVWRN86mGxT
-    UdXLT8yP8UREVkA6bT8z7
-    bFQrFinQMFNMDHqWHJgyt
-    bKCRGe7m6wbhPb9iXaqh6
-    gHeHiTEdtLh64Q9AhGNhb
-    jDAC73QViKa9bBTeDYJU3
-    pddbaDkJehCcChd8hhQhC
-    rQGwBKJpMErLe76V94k3B
-    yjGeRE3TTyGG3qxRPADG3
-    kDEQCYDzAwyyM8GBJH6QD_id @relation(table: "ECGxBMFQB4inFAgbdPfD8", fields: ["id"], single: true, references: ["kDEQCYDzAwyyM8GBJH6QD_id"]) {
-      ktrnJXPTkAgwx4mzGzGmL
-      apaNPYVxmxzwXztLe7Nnj
-      id
-      created_at
-      updated_at
-      Qig4WqtRMtJbjBHUcpFPN
-      ywDQnyiyXa9bhzrdYaUt7
-    }
+mutation BrevityMutation(
+  $A_unjoinUserToerYdN96kHbeFqPQaVkCGV: String
+  $B_unjoinUserToerYdN96kHbeFqPQaVkCGV: String
+) {
+  unjoinUserToerYdN96kHbeFqPQaVkCGV(
+    A: $A_unjoinUserToerYdN96kHbeFqPQaVkCGV
+    B: $B_unjoinUserToerYdN96kHbeFqPQaVkCGV
+  )
+    @meta(
+      table: "_UserToerYdN96kHbeFqPQaVkCGV"
+      delete: true
+      single: true
+      display: "Unlink User and Location"
+    ) {
+    __typename
   }
 }
             "#,
@@ -3652,25 +3555,8 @@ query BrevityQuery($filter_currentUser: UserFilter!, $first_getUserList: undefin
         let (statement, params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
-                "filter_currentUser": {
-                  "field": "id",
-                  "operator": "eq"
-                },
-                "first_getUserList": 100,
-                "order_getUserList": [
-                  {
-                    "field": "created_at",
-                    "direction": "DESC"
-                  }
-                ],
-                "filter_getUserList": {
-                  "field": "rQGwBKJpMErLe76V94k3B",
-                  "value": true,
-                  "operator": "eq",
-                  "logicalOperator": "AND"
-                },
-                "if_getUserById_skip": true,
-                "id_getUserById": ""
+              "A_unjoinUserToerYdN96kHbeFqPQaVkCGV": "RxMeKT6cLmPxPK7YpN64b",
+              "B_unjoinUserToerYdN96kHbeFqPQaVkCGV": "DF6gGWeBJiGNzxcb3rW6F"
             })),
             None,
         )?;
