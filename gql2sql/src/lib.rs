@@ -28,10 +28,10 @@ use async_graphql_value::{
 use lazy_static::lazy_static;
 use regex::Regex;
 use sqlparser::ast::{
-    Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
-    Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
-    SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
-    WildcardAdditionalOptions, With,
+    Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr,
+    GroupByExpr, Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows,
+    OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, TableAlias, TableFactor,
+    TableWithJoins, Value, Values, WildcardAdditionalOptions, With,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -280,8 +280,9 @@ fn get_filter(
     let primary = get_expr(left, operator.as_str(), value, sql_vars, final_vars)?;
     if args.contains_key("children") {
         if let Some(GqlValue::List(children)) = args.get("children") {
-            let op = if let Some(GqlValue::String(op)) = args.get("logicalOperator") {
-                get_logical_operator(op.as_str())?
+            let op = if let Some(val) = args.get("logicalOperator") {
+                let op_name = get_string_or_variable(val, &sql_vars)?;
+                get_logical_operator(op_name.to_uppercase().as_str())?
             } else {
                 BinaryOperator::And
             };
@@ -336,7 +337,7 @@ fn get_agg_query(
 ) -> SetExpr {
     SetExpr::Select(Box::new(Select {
         distinct: None,
-        named_window: Vec::new(),
+        named_window: vec![],
         top: None,
         into: None,
         projection: vec![SelectItem::ExprWithAlias {
@@ -357,12 +358,12 @@ fn get_agg_query(
             }),
         }],
         from,
-        lateral_views: Vec::new(),
+        lateral_views: vec![],
         selection,
-        group_by: Vec::new(),
-        cluster_by: Vec::new(),
-        distribute_by: Vec::new(),
-        sort_by: Vec::new(),
+        group_by: GroupByExpr::Expressions(vec![]),
+        cluster_by: vec![],
+        distribute_by: vec![],
+        sort_by: vec![],
         having: None,
         qualify: None,
     }))
@@ -387,7 +388,7 @@ fn get_root_query(
                 with: None,
                 body: Box::new(SetExpr::Select(Box::new(Select {
                     distinct: None,
-                    named_window: Vec::new(),
+                    named_window: vec![],
                     top: None,
                     projection: vec![SelectItem::UnnamedExpr(Expr::Identifier(Ident {
                         value: ROOT_LABEL.to_string(),
@@ -408,7 +409,7 @@ fn get_root_query(
                                     from: vec![],
                                     lateral_views: vec![],
                                     selection: None,
-                                    group_by: vec![],
+                                    group_by: GroupByExpr::Expressions(vec![]),
                                     cluster_by: vec![],
                                     distribute_by: vec![],
                                     sort_by: vec![],
@@ -433,7 +434,7 @@ fn get_root_query(
                     }],
                     lateral_views: vec![],
                     selection: None,
-                    group_by: vec![],
+                    group_by: GroupByExpr::Expressions(vec![]),
                     cluster_by: vec![],
                     distribute_by: vec![],
                     sort_by: vec![],
@@ -512,7 +513,7 @@ fn get_root_query(
     }
     SetExpr::Select(Box::new(Select {
         distinct: None,
-        named_window: Vec::new(),
+        named_window: vec![],
         top: None,
         projection: vec![SelectItem::ExprWithAlias {
             alias: Ident {
@@ -523,12 +524,12 @@ fn get_root_query(
         }],
         into: None,
         from,
-        lateral_views: Vec::new(),
+        lateral_views: vec![],
         selection,
-        group_by: Vec::new(),
-        cluster_by: Vec::new(),
-        distribute_by: Vec::new(),
-        sort_by: Vec::new(),
+        group_by: GroupByExpr::Expressions(vec![]),
+        cluster_by: vec![],
+        distribute_by: vec![],
+        sort_by: vec![],
         having: None,
         qualify: None,
     }))
@@ -635,7 +636,7 @@ fn get_aggregate_projection(
     items: &Vec<Positioned<Selection>>,
     table_name: &str,
 ) -> AnyResult<Vec<FunctionArg>> {
-    let mut aggs = Vec::new();
+    let mut aggs = vec![];
     for selection in items {
         match &selection.node {
             Selection::Field(field) => {
@@ -703,7 +704,7 @@ fn get_join<'a>(
     );
 
     let sub_path = path.map_or_else(|| relation.to_string(), |v| format!("{v}.{relation}"));
-    let mut additional_select_items = Vec::new();
+    let mut additional_select_items = vec![];
     let mut join_name = None;
     if is_many {
         let (a, b) = if relation.as_str() < parent {
@@ -1086,9 +1087,9 @@ fn get_projection<'a>(
     final_vars: &'a mut IndexSet<Name>,
     tags: &mut IndexMap<String, IndexSet<Tag>>,
 ) -> AnyResult<(Vec<SelectItem>, Vec<Join>, Vec<Merge>)> {
-    let mut projection = Vec::new();
-    let mut joins = Vec::new();
-    let mut merges = Vec::new();
+    let mut projection = vec![];
+    let mut joins = vec![];
+    let mut merges = vec![];
     for selection in items {
         let selection = &selection.node;
         match selection {
@@ -1453,6 +1454,7 @@ fn get_filter_query(
                 .into_iter()
                 .map(|table_name| TableWithJoins {
                     relation: TableFactor::Table {
+                        partitions: vec![],
                         version: None,
                         name: table_name,
                         alias: None,
@@ -1470,7 +1472,7 @@ fn get_filter_query(
                     s
                 }
             }),
-            group_by: vec![],
+            group_by: GroupByExpr::Expressions(vec![]),
             cluster_by: vec![],
             distribute_by: vec![],
             sort_by: vec![],
@@ -1508,7 +1510,7 @@ fn get_filter_query(
                 }],
                 lateral_views: vec![],
                 selection: None,
-                group_by: vec![],
+                group_by: GroupByExpr::Expressions(vec![]),
                 cluster_by: vec![],
                 distribute_by: vec![],
                 sort_by: vec![],
@@ -2252,6 +2254,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                                     into: None,
                                     from: vec![TableWithJoins {
                                         relation: TableFactor::Table {
+                                            partitions: vec![],
                                             version: None,
                                             name: ObjectName(vec![Ident {
                                                 value: "result".to_string(),
@@ -2263,12 +2266,12 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                                         },
                                         joins: vec![],
                                     }],
-                                    lateral_views: Vec::new(),
+                                    lateral_views: vec![],
                                     selection: None,
-                                    group_by: Vec::new(),
-                                    cluster_by: Vec::new(),
-                                    distribute_by: Vec::new(),
-                                    sort_by: Vec::new(),
+                                    group_by: GroupByExpr::Expressions(vec![]),
+                                    cluster_by: vec![],
+                                    distribute_by: vec![],
+                                    sort_by: vec![],
                                     having: None,
                                     qualify: None,
                                 }))),
@@ -2290,12 +2293,12 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                 },
             }],
             from: vec![],
-            lateral_views: Vec::new(),
+            lateral_views: vec![],
             selection: None,
-            group_by: Vec::new(),
-            cluster_by: Vec::new(),
-            distribute_by: Vec::new(),
-            sort_by: Vec::new(),
+            group_by: GroupByExpr::Expressions(vec![]),
+            cluster_by: vec![],
+            distribute_by: vec![],
+            sort_by: vec![],
             having: None,
             qualify: None,
         }))),
@@ -2330,7 +2333,7 @@ pub fn gql2sql(
     variables: &Option<JsonValue>,
     operation_name: Option<String>,
 ) -> AnyResult<(Statement, Option<Vec<JsonValue>>, Option<Vec<String>>)> {
-    let mut statements = Vec::new();
+    let mut statements = vec![];
     let operation = match ast.operations {
         DocumentOperations::Single(operation) => operation.node,
         DocumentOperations::Multiple(map) => {
@@ -2533,12 +2536,12 @@ pub fn gql2sql(
                         }),
                     }],
                     from: vec![],
-                    lateral_views: Vec::new(),
+                    lateral_views: vec![],
                     selection: None,
-                    group_by: Vec::new(),
-                    cluster_by: Vec::new(),
-                    distribute_by: Vec::new(),
-                    sort_by: Vec::new(),
+                    group_by: GroupByExpr::Expressions(vec![]),
+                    cluster_by: vec![],
+                    distribute_by: vec![],
+                    sort_by: vec![],
                     having: None,
                     qualify: None,
                 }))),
@@ -2697,6 +2700,7 @@ pub fn gql2sql(
                                     Statement::Update {
                                         table: TableWithJoins {
                                             relation: TableFactor::Table {
+                                                partitions: vec![],
                                                 version: None,
                                                 name: table_name,
                                                 alias: None,
@@ -2747,6 +2751,7 @@ pub fn gql2sql(
                                         tables: vec![],
                                         from: vec![TableWithJoins {
                                             relation: TableFactor::Table {
+                                                partitions: vec![],
                                                 version: None,
                                                 name: table_name,
                                                 alias: None,
@@ -3542,21 +3547,18 @@ mod tests {
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-mutation BrevityMutation(
-  $A_unjoinUserToerYdN96kHbeFqPQaVkCGV: String
-  $B_unjoinUserToerYdN96kHbeFqPQaVkCGV: String
-) {
-  unjoinUserToerYdN96kHbeFqPQaVkCGV(
-    A: $A_unjoinUserToerYdN96kHbeFqPQaVkCGV
-    B: $B_unjoinUserToerYdN96kHbeFqPQaVkCGV
-  )
-    @meta(
-      table: "_UserToerYdN96kHbeFqPQaVkCGV"
-      delete: true
-      single: true
-      display: "Unlink User and Location"
-    ) {
-    __typename
+query BrevityQuery($filter_currentUser: UserFilter!, $order_getPTmztqpCxPbxfALbPA3fUList: [PTmztqpCxPbxfALbPA3fU_Order], $filter_getPTmztqpCxPbxfALbPA3fUList: PTmztqpCxPbxfALbPA3fU_Filter, $order_getUserList: [User_Order]) {
+  getPTmztqpCxPbxfALbPA3fUList(
+    order: $order_getPTmztqpCxPbxfALbPA3fUList
+    filter: $filter_getPTmztqpCxPbxfALbPA3fUList
+  ) @meta(table: "PTmztqpCxPbxfALbPA3fU", display: "Get List of Event") {
+    nhK3GmjmQdtFpkAVbYANX
+    ycXDjDEbUcPWFTrmeKGaq
+    RCPyTVemnHNywxA6UXyCW
+    id
+    created_at
+    updated_at
+    mCtARC43mV9kHcXc7xQmC
   }
 }
             "#,
@@ -3564,9 +3566,29 @@ mutation BrevityMutation(
         let (statement, params, _tags) = gql2sql(
             gqlast,
             &Some(json!({
-              "A_unjoinUserToerYdN96kHbeFqPQaVkCGV": "RxMeKT6cLmPxPK7YpN64b",
-              "B_unjoinUserToerYdN96kHbeFqPQaVkCGV": "DF6gGWeBJiGNzxcb3rW6F"
-            })),
+            "order_getPTmztqpCxPbxfALbPA3fUList": [
+              {
+                "nhK3GmjmQdtFpkAVbYANX": "ASC"
+              }
+            ],
+            "filter_getPTmztqpCxPbxfALbPA3fUList": {
+              "id": "awf9knq3YTNDxqFDBWNMj",
+              "field": "nhK3GmjmQdtFpkAVbYANX",
+              "value": null,
+              "children": [
+                {
+                  "id": "tKjrCLXcUjyNDfLXE76aV",
+                  "field": "ycXDjDEbUcPWFTrmeKGaq",
+                  "value": null,
+                  "children": [],
+                  "operator": "gte",
+                  "logicalOperator": "AND"
+                }
+              ],
+              "operator": "gte",
+              "logicalOperator": "OR"
+            }
+                })),
             None,
         )?;
 
