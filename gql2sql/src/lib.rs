@@ -576,7 +576,7 @@ fn get_agg_agg_projection(field: &Field, table_name: String) -> Vec<FunctionArg>
                 }))),
             ]
         }
-        "min" | "max" | "avg" => {
+        "min" | "max" | "avg" | "sum" => {
             let projection = field
                 .selection_set
                 .node
