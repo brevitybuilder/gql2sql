@@ -56,9 +56,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@brevity-builder/gql2sql-darwin-arm64@npm:3.0.21":
-  version: 3.0.21
-  resolution: "@brevity-builder/gql2sql-darwin-arm64@npm:3.0.21"
+"@brevity-builder/gql2sql-darwin-arm64@npm:3.0.29":
+  version: 3.0.29
+  resolution: "@brevity-builder/gql2sql-darwin-arm64@npm:3.0.29"
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
@@ -88,7 +88,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@brevity-builder/gql2sql@workspace:."
   dependencies:
-    "@brevity-builder/gql2sql-darwin-arm64": 3.0.21
+    "@brevity-builder/gql2sql-darwin-arm64": 3.0.29
     "@brevity-builder/gql2sql-darwin-x64": 3.0.21
     "@brevity-builder/gql2sql-linux-x64-gnu": 3.0.21
     "@brevity-builder/gql2sql-linux-x64-musl": 3.0.21

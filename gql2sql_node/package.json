@@ -98,7 +98,7 @@
     "arrowParens": "always"
   },
   "optionalDependencies": {
-    "@brevity-builder/gql2sql-darwin-arm64": "3.0.21",
+    "@brevity-builder/gql2sql-darwin-arm64": "3.0.29",
     "@brevity-builder/gql2sql-darwin-x64": "3.0.21",
     "@brevity-builder/gql2sql-linux-x64-gnu": "3.0.21",
     "@brevity-builder/gql2sql-linux-x64-musl": "3.0.21"
