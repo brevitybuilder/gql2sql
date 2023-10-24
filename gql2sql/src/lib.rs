@@ -754,7 +754,7 @@ fn get_join<'a>(
                     } else {
                         new_tags.insert(Tag {
                             key: pk.clone(),
-                            value: None
+                            value: None,
                         });
                     }
                     if let Some(v) = tags.get_mut(name) {
