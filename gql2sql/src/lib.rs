@@ -735,12 +735,12 @@ fn get_join<'a>(
                         for tag in table_tags {
                             if tag.key == pk {
                                 new_tags.insert(Tag {
-                                    key:  fk.clone(),
+                                    key: fk.clone(),
                                     value: tag.value.clone(),
                                 });
                             } else if tag.key == fk {
                                 new_tags.insert(Tag {
-                                    key:  pk.clone(),
+                                    key: pk.clone(),
                                     value: tag.value.clone(),
                                 });
                             } else {
