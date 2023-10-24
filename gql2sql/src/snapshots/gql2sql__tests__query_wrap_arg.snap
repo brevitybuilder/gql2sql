@@ -2,4 +2,4 @@
 source: gql2sql/src/lib.rs
 expression: statement.to_string()
 ---
-WITH "result" AS (INSERT INTO "auth"."verification_tokens" ("expires", "identifier", "token") VALUES ($1::timestamptz, $2::text, $3::text) RETURNING *) SELECT json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') -> 0 FROM "result")) AS "data"
+WITH "result" AS (INSERT INTO "auth"."verification_tokens" ("expires", "identifier", "token") VALUES ($1::timestamptz, $2::text, $3::text) RETURNING 'verification_tokens' AS "__typename", *) SELECT json_build_object('insert', (SELECT coalesce(json_agg("result"), '[]') -> 0 FROM "result")) AS "data"

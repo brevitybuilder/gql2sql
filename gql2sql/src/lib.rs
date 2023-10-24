@@ -25,6 +25,7 @@ use async_graphql_value::{
     indexmap::{IndexMap, IndexSet},
     Name, Value as GqlValue,
 };
+use consts::TYPENAME;
 use lazy_static::lazy_static;
 use regex::Regex;
 use sqlparser::ast::{
@@ -2658,14 +2659,23 @@ pub fn gql2sql(
                                         after_columns: vec![],
                                         table: false,
                                         on: None,
-                                        returning: Some(vec![SelectItem::Wildcard(
-                                            WildcardAdditionalOptions {
+                                        returning: Some(vec![
+                                            SelectItem::ExprWithAlias {
+                                                alias: Ident {
+                                                    value: TYPENAME.to_string(),
+                                                    quote_style: Some(QUOTE_CHAR),
+                                                },
+                                                expr: Expr::Value(Value::SingleQuotedString(
+                                                    name.to_owned(),
+                                                )),
+                                            },
+                                            SelectItem::Wildcard(WildcardAdditionalOptions {
                                                 opt_exclude: None,
                                                 opt_except: None,
                                                 opt_rename: None,
                                                 opt_replace: None,
-                                            },
-                                        )]),
+                                            }),
+                                        ]),
                                     },
                                     is_single,
                                 ),
@@ -2712,14 +2722,23 @@ pub fn gql2sql(
                                         assignments,
                                         from: None,
                                         selection,
-                                        returning: Some(vec![SelectItem::Wildcard(
-                                            WildcardAdditionalOptions {
+                                        returning: Some(vec![
+                                            SelectItem::ExprWithAlias {
+                                                alias: Ident {
+                                                    value: TYPENAME.to_string(),
+                                                    quote_style: Some(QUOTE_CHAR),
+                                                },
+                                                expr: Expr::Value(Value::SingleQuotedString(
+                                                    name.to_owned(),
+                                                )),
+                                            },
+                                            SelectItem::Wildcard(WildcardAdditionalOptions {
                                                 opt_exclude: None,
                                                 opt_except: None,
                                                 opt_rename: None,
                                                 opt_replace: None,
-                                            },
-                                        )]),
+                                            }),
+                                        ]),
                                     },
                                     is_single,
                                 ),
@@ -2762,14 +2781,23 @@ pub fn gql2sql(
                                         }],
                                         using: None,
                                         selection,
-                                        returning: Some(vec![SelectItem::Wildcard(
-                                            WildcardAdditionalOptions {
+                                        returning: Some(vec![
+                                            SelectItem::ExprWithAlias {
+                                                alias: Ident {
+                                                    value: TYPENAME.to_string(),
+                                                    quote_style: Some(QUOTE_CHAR),
+                                                },
+                                                expr: Expr::Value(Value::SingleQuotedString(
+                                                    name.to_owned(),
+                                                )),
+                                            },
+                                            SelectItem::Wildcard(WildcardAdditionalOptions {
                                                 opt_exclude: None,
                                                 opt_except: None,
                                                 opt_rename: None,
                                                 opt_replace: None,
-                                            },
-                                        )]),
+                                            }),
+                                        ]),
                                     },
                                     is_single,
                                 ),
