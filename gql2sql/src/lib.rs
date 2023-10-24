@@ -2687,7 +2687,7 @@ pub fn gql2sql(
                                 ),
                                 params,
                                 None,
-                                true
+                                true,
                             ));
                         } else if is_update {
                             let has_updated_at_directive = field
@@ -2751,7 +2751,7 @@ pub fn gql2sql(
                                 ),
                                 params,
                                 None,
-                                true
+                                true,
                             ));
                         } else if is_delete {
                             let (selection, _) = get_mutation_assignments(
@@ -2869,7 +2869,8 @@ mod tests {
             }
         "#,
         )?;
-        let (statement, _params, _tags, _is_mutation) = gql2sql(gqlast, &None, Some("App".to_owned()))?;
+        let (statement, _params, _tags, _is_mutation) =
+            gql2sql(gqlast, &None, Some("App".to_owned()))?;
         assert_snapshot!(statement.to_string());
         Ok(())
     }
