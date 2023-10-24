@@ -270,7 +270,7 @@ fn get_filter(
         if let Ok(value) = get_string_or_variable(value, sql_vars) {
             tags.insert(Tag {
                 key: field.clone(),
-                value,
+                value: Some(value),
             });
         }
     }
@@ -747,14 +747,14 @@ fn get_join<'a>(
                             } else {
                                 new_tags.insert(Tag {
                                     key: pk.clone(),
-                                    value: format!("{{{{{pk}}}}}"),
+                                    value: None,
                                 });
                             }
                         }
                     } else {
                         new_tags.insert(Tag {
-                            key: fk.clone(),
-                            value: format!("{{{{{fk}}}}}"),
+                            key: pk.clone(),
+                            value: None
                         });
                     }
                     if let Some(v) = tags.get_mut(name) {
@@ -2314,18 +2314,24 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
 #[derive(PartialEq, Eq, Hash)]
 struct Tag {
     key: String,
-    value: String,
+    value: Option<String>,
 }
 
 impl Debug for Tag {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.key, self.value)
+        if self.value.is_some() {
+            return write!(f, "{}:{}", self.key, self.value.as_ref().expect("is_some"));
+        }
+        return write!(f, "{}", self.key);
     }
 }
 
 impl ToString for Tag {
     fn to_string(&self) -> String {
-        format!("{}:{}", self.key, self.value)
+        if self.value.is_some() {
+            return format!("{}:{}", self.key, self.value.as_ref().expect("is_some"));
+        }
+        return self.key.clone();
     }
 }
 
