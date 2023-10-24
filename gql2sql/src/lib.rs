@@ -677,9 +677,9 @@ fn get_join<'a>(
         first = Some(Expr::Value(Value::Number("1".to_string(), false)));
     }
     if let Some(keys) = keys {
-        tags.insert(name.to_owned(), keys.into_iter().collect());
+        tags.insert(relation.clone(), keys.into_iter().collect());
     } else {
-        tags.insert(name.to_owned(), IndexSet::new());
+        tags.insert(relation.clone(), IndexSet::new());
     };
 
     let table_name = schema_name.as_ref().map_or_else(
@@ -735,18 +735,18 @@ fn get_join<'a>(
                         for tag in table_tags {
                             if tag.key == pk {
                                 new_tags.insert(Tag {
-                                    key: fk.clone(),
+                                    key:  fk.clone(),
                                     value: tag.value.clone(),
                                 });
                             } else if tag.key == fk {
                                 new_tags.insert(Tag {
-                                    key: pk.clone(),
+                                    key:  pk.clone(),
                                     value: tag.value.clone(),
                                 });
                             } else {
                                 new_tags.insert(Tag {
-                                    key: fk.clone(),
-                                    value: format!("{{{{{fk}}}}}"),
+                                    key: pk.clone(),
+                                    value: format!("{{{{{pk}}}}}"),
                                 });
                             }
                         }
@@ -759,7 +759,7 @@ fn get_join<'a>(
                     if let Some(v) = tags.get_mut(name) {
                         v.extend(new_tags);
                     } else {
-                        tags.insert(name.to_string(), new_tags);
+                        tags.insert(relation.clone(), new_tags);
                     };
                     let mut identifier = vec![
                         Ident {
@@ -3547,53 +3547,154 @@ mod tests {
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-query BrevityQuery($filter_currentUser: UserFilter!, $order_getPTmztqpCxPbxfALbPA3fUList: [PTmztqpCxPbxfALbPA3fU_Order], $filter_getPTmztqpCxPbxfALbPA3fUList: PTmztqpCxPbxfALbPA3fU_Filter, $order_getUserList: [User_Order]) {
-  getPTmztqpCxPbxfALbPA3fUList(
-    order: $order_getPTmztqpCxPbxfALbPA3fUList
-    filter: $filter_getPTmztqpCxPbxfALbPA3fUList
-  ) @meta(table: "PTmztqpCxPbxfALbPA3fU", display: "Get List of Event") {
-    nhK3GmjmQdtFpkAVbYANX
-    ycXDjDEbUcPWFTrmeKGaq
-    RCPyTVemnHNywxA6UXyCW
+query BrevityQuery($first_VJ9DFD4zeK7zHf9FkUkak_id: undefined, $order_VJ9DFD4zeK7zHf9FkUkak_id: [PTGBjFqVb7pWraKPPCgUG_Order], $filter_currentUser: UserFilter!) {
+  currentUser: getUserById(filter: $filter_currentUser) @meta(table: "User", single: true, display: "Get User by Id") {
     id
+    ARcE3fETmim6HBcpYdKyC_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["id"], single: true, references: ["ARcE3fETmim6HBcpYdKyC_id"]) {
+      AbEWHtwAYBa7VjwfzEwVH
+      PYLFGFjqfYY4yhri3zjAm_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["id"], single: true, references: ["PYLFGFjqfYY4yhri3zjAm_id"]) {
+        rUCfHi8UqKHWdJUyfBAG4
+        qzDiqE7UMR7KGGMxyNm7n
+        Hg4Rmh8pbH44NJe9eKKxT
+        PYLFGFjqfYY4yhri3zjAm_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["PYLFGFjqfYY4yhri3zjAm_id"], references: ["id"]) {
+          AbEWHtwAYBa7VjwfzEwVH
+          PYLFGFjqfYY4yhri3zjAm_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["id"], single: true, references: ["PYLFGFjqfYY4yhri3zjAm_id"]) {
+            id
+            __typename
+          }
+          id
+          __typename
+          created_at
+          updated_at
+          Vnb7QPmr4dLnT3jgqrkAa
+          aPK3x7AcL9mKWH4bxhrc8
+          VJ9DFD4zeK7zHf9FkUkak_id(
+            first: $first_VJ9DFD4zeK7zHf9FkUkak_id
+            order: $order_VJ9DFD4zeK7zHf9FkUkak_id
+          ) @relation(table: "PTGBjFqVb7pWraKPPCgUG", fields: ["VJ9DFD4zeK7zHf9FkUkak_id"], references: ["id"]) {
+            id
+            __typename
+          }
+        }
+        id
+        __typename
+        created_at
+        updated_at
+      }
+      id
+      __typename
+      created_at
+      updated_at
+      Vnb7QPmr4dLnT3jgqrkAa
+      aPK3x7AcL9mKWH4bxhrc8
+      VJ9DFD4zeK7zHf9FkUkak_id(
+        first: $first_VJ9DFD4zeK7zHf9FkUkak_id
+        order: $order_VJ9DFD4zeK7zHf9FkUkak_id
+      ) @relation(table: "PTGBjFqVb7pWraKPPCgUG", fields: ["VJ9DFD4zeK7zHf9FkUkak_id"], references: ["id"]) {
+        i4XQMfhQgQged3UWGEbPz_id @relation(table: "User", fields: ["id"], single: true, references: ["i4XQMfhQgQged3UWGEbPz_id"]) {
+          id
+          ARcE3fETmim6HBcpYdKyC_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["id"], single: true, references: ["ARcE3fETmim6HBcpYdKyC_id"]) {
+            id
+            __typename
+          }
+          rXarJUPJCNWfQ7UAr9AtV
+          MiBMitGLrNdnmC3jF6LAr_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["MiBMitGLrNdnmC3jF6LAr_id"], single: true, references: ["id"]) {
+            id
+            __typename
+          }
+          __typename
+          name
+          email
+          created_at
+          updated_at
+          profile_image_url
+          TacAeeEgihFCBran9fqi7
+        }
+        b7haXHE4mJwq47P66Rg3C
+        created_at
+        id
+        __typename
+        updated_at
+      }
+    }
+    rXarJUPJCNWfQ7UAr9AtV
+    MiBMitGLrNdnmC3jF6LAr_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["MiBMitGLrNdnmC3jF6LAr_id"], single: true, references: ["id"]) {
+      rUCfHi8UqKHWdJUyfBAG4
+      qzDiqE7UMR7KGGMxyNm7n
+      Hg4Rmh8pbH44NJe9eKKxT
+      PYLFGFjqfYY4yhri3zjAm_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["PYLFGFjqfYY4yhri3zjAm_id"], references: ["id"]) {
+        AbEWHtwAYBa7VjwfzEwVH
+        PYLFGFjqfYY4yhri3zjAm_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["id"], single: true, references: ["PYLFGFjqfYY4yhri3zjAm_id"]) {
+          rUCfHi8UqKHWdJUyfBAG4
+          qzDiqE7UMR7KGGMxyNm7n
+          Hg4Rmh8pbH44NJe9eKKxT
+          PYLFGFjqfYY4yhri3zjAm_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["PYLFGFjqfYY4yhri3zjAm_id"], references: ["id"]) {
+            id
+            __typename
+          }
+          id
+          __typename
+          created_at
+          updated_at
+        }
+        id
+        __typename
+        created_at
+        updated_at
+        Vnb7QPmr4dLnT3jgqrkAa
+        aPK3x7AcL9mKWH4bxhrc8
+        VJ9DFD4zeK7zHf9FkUkak_id(
+          first: $first_VJ9DFD4zeK7zHf9FkUkak_id
+          order: $order_VJ9DFD4zeK7zHf9FkUkak_id
+        ) @relation(table: "PTGBjFqVb7pWraKPPCgUG", fields: ["VJ9DFD4zeK7zHf9FkUkak_id"], references: ["id"]) {
+          i4XQMfhQgQged3UWGEbPz_id @relation(table: "User", fields: ["id"], single: true, references: ["i4XQMfhQgQged3UWGEbPz_id"]) {
+            id
+            __typename
+          }
+          b7haXHE4mJwq47P66Rg3C
+          created_at
+          id
+          __typename
+          updated_at
+        }
+      }
+      id
+      __typename
+      created_at
+      updated_at
+    }
+    __typename
+    name
+    email
     created_at
     updated_at
-    mCtARC43mV9kHcXc7xQmC
+    profile_image_url
+    TacAeeEgihFCBran9fqi7
   }
 }
             "#,
         )?;
-        let (statement, params, _tags) = gql2sql(
+        let (statement, params, tags) = gql2sql(
             gqlast,
             &Some(json!({
-            "order_getPTmztqpCxPbxfALbPA3fUList": [
+            "first_VJ9DFD4zeK7zHf9FkUkak_id": 50,
+            "order_VJ9DFD4zeK7zHf9FkUkak_id": [
               {
-                "nhK3GmjmQdtFpkAVbYANX": "ASC"
+                "created_at": "ASC"
               }
             ],
-            "filter_getPTmztqpCxPbxfALbPA3fUList": {
-              "id": "awf9knq3YTNDxqFDBWNMj",
-              "field": "nhK3GmjmQdtFpkAVbYANX",
-              "value": null,
-              "children": [
-                {
-                  "id": "tKjrCLXcUjyNDfLXE76aV",
-                  "field": "ycXDjDEbUcPWFTrmeKGaq",
-                  "value": null,
-                  "children": [],
-                  "operator": "gte",
-                  "logicalOperator": "AND"
-                }
-              ],
-              "operator": "gte",
-              "logicalOperator": "OR"
+            "filter_currentUser": {
+              "field": "id",
+              "operator": "eq",
+              "value": "RBXFUmzpnXJxWAGgwgnwe"
             }
-                })),
+                          })),
             None,
         )?;
 
         println!("query: {statement}");
         println!("vars: {}", serde_json::to_string_pretty(&params)?);
+        println!("tags: {}", serde_json::to_string_pretty(&tags)?);
         // assert_snapshot!(statement.to_string());
         // assert_snapshot!();
         Ok(())
