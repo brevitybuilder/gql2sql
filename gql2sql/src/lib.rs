@@ -2339,7 +2339,7 @@ pub fn gql2sql(
     ast: ExecutableDocument,
     variables: &Option<JsonValue>,
     operation_name: Option<String>,
-) -> AnyResult<(Statement, Option<Vec<JsonValue>>, Option<Vec<String>>)> {
+) -> AnyResult<(Statement, Option<Vec<JsonValue>>, Option<Vec<String>>, bool)> {
     let mut statements = vec![];
     let operation = match ast.operations {
         DocumentOperations::Single(operation) => operation.node,
@@ -2569,7 +2569,7 @@ pub fn gql2sql(
                 )
             };
             if tags.is_empty() {
-                return Ok((statement, params, None));
+                return Ok((statement, params, None, false));
             }
             let mut sub_tags = tags
                 .into_iter()
@@ -2584,7 +2584,7 @@ pub fn gql2sql(
                 })
                 .collect::<Vec<String>>();
             sub_tags.sort_unstable();
-            return Ok((statement, params, Some(sub_tags)));
+            return Ok((statement, params, Some(sub_tags), false));
         }
         OperationType::Mutation => {
             for selection in operation.selection_set.node.items {
@@ -2687,6 +2687,7 @@ pub fn gql2sql(
                                 ),
                                 params,
                                 None,
+                                true
                             ));
                         } else if is_update {
                             let has_updated_at_directive = field
@@ -2750,6 +2751,7 @@ pub fn gql2sql(
                                 ),
                                 params,
                                 None,
+                                true
                             ));
                         } else if is_delete {
                             let (selection, _) = get_mutation_assignments(
@@ -2809,6 +2811,7 @@ pub fn gql2sql(
                                 ),
                                 params,
                                 None,
+                                true,
                             ));
                         }
                     }
@@ -2866,7 +2869,7 @@ mod tests {
             }
         "#,
         )?;
-        let (statement, _params, _tags) = gql2sql(gqlast, &None, Some("App".to_owned()))?;
+        let (statement, _params, _tags, _is_mutation) = gql2sql(gqlast, &None, Some("App".to_owned()))?;
         assert_snapshot!(statement.to_string());
         Ok(())
     }
@@ -2878,7 +2881,7 @@ mod tests {
                 insert(data: $data) @meta(table: "Villain", insert: true, schema: "auth") { id name }
             }"#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
                 "data": [
@@ -2913,7 +2916,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let (statement, _params, _tags) = gql2sql(gqlast, &None, None)?;
+        let (statement, _params, _tags, _is_mutation) = gql2sql(gqlast, &None, None)?;
         assert_snapshot!(statement.to_string());
         Ok(())
     }
@@ -3124,7 +3127,7 @@ mod tests {
     }
 "#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
                 "orgId": "org",
@@ -3165,7 +3168,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
                 "componentId": "comp",
@@ -3188,7 +3191,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
                 "componentId": "fake"
@@ -3229,7 +3232,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
                 "componentId": "fake",
@@ -3261,7 +3264,7 @@ mod tests {
                 }
             }"#,
         )?;
-        let (statement, _params, _tags) = gql2sql(gqlast, &None, None)?;
+        let (statement, _params, _tags, _is_mutation) = gql2sql(gqlast, &None, None)?;
         assert_snapshot!(statement.to_string());
         Ok(())
     }
@@ -3299,7 +3302,7 @@ mod tests {
 }
             "#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
               "sessionToken": "fake"
@@ -3324,7 +3327,7 @@ mod tests {
                 }
             "#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
             "data": [{
@@ -3353,7 +3356,7 @@ mod tests {
             "#,
         )?;
         // let sql = r#""#;
-        let (_statement, _params, _tags) = gql2sql(
+        let (_statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
                 "order_getTodoList": {
@@ -3380,7 +3383,7 @@ mod tests {
                 }
             "#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
                 "id": "fake"
@@ -3405,7 +3408,7 @@ mod tests {
                 }
             "#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
                 "id": "fake"
@@ -3473,7 +3476,7 @@ mod tests {
             }
             "#,
         )?;
-        let (statement, params, _tags) = gql2sql(
+        let (statement, params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
               "id_getH33iDwNVqqMxAnVEgPaThById": "HAzqFfhQGbaB6WKBr6LA7"
@@ -3509,7 +3512,7 @@ mod tests {
             }
             "#,
         )?;
-        let (statement, _params, _tags) = gql2sql(
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({ "token": "12345", "identifier": "fake@email.com" })),
             None,
@@ -3536,7 +3539,7 @@ mod tests {
               }
             "#,
         )?;
-        let (statement, params, _tags) = gql2sql(
+        let (statement, params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(
                 json!({"id":"ffj9ACLQqpzjyh8yNFeQ6","set":{"updated_at":"2023-06-06T19:41:47+00:00","ynWfqMzGjjVQYzbKx4rMX":"DOGGY","QYtpTcmJCe6zfCHWwpNjR":"MYDOG","a8heQgUMyFync44JACwKA":{"src":"https://assets.brevity.io/uploads/jwy1g8rs7bxr9ptkaf6sy/lp_image-1685987665741.png","width":588,"height":1280}}}),
@@ -3568,7 +3571,7 @@ mod tests {
                 }
             "#,
         )?;
-        let (statement, params, _tags) = gql2sql(
+        let (statement, params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({ "id_getU7BBKiUwTgwiWMcgUYA4CById": "piWkMrFFXgdQBBkzf84MD" })),
             None,
@@ -3708,7 +3711,7 @@ query BrevityQuery($first_VJ9DFD4zeK7zHf9FkUkak_id: undefined, $order_VJ9DFD4zeK
 }
             "#,
         )?;
-        let (statement, params, tags) = gql2sql(
+        let (statement, params, tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
             "first_VJ9DFD4zeK7zHf9FkUkak_id": 50,
