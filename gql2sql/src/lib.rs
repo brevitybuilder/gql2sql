@@ -602,7 +602,10 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                                             }]),
                                             args: vec![FunctionArg::Unnamed(
                                                 FunctionArgExpr::Expr(Expr::Value(
-                                                    Value::SingleQuotedString(format!("{}_AggCol", table_name)),
+                                                    Value::SingleQuotedString(format!(
+                                                        "{}_AggCol",
+                                                        table_name
+                                                    )),
                                                 )),
                                             )],
                                             over: None,
@@ -666,7 +669,7 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
 
 fn get_aggregate_projection(
     items: &Vec<Positioned<Selection>>,
-    table_name: &str
+    table_name: &str,
 ) -> AnyResult<Vec<FunctionArg>> {
     let mut aggs = vec![];
     for selection in items {
@@ -2457,10 +2460,8 @@ pub fn gql2sql(
                             distinct_order,
                         );
                         if is_aggregate {
-                            let aggs = get_aggregate_projection(
-                                &field.selection_set.node.items,
-                                name
-                            )?;
+                            let aggs =
+                                get_aggregate_projection(&field.selection_set.node.items, name)?;
                             statements.push((
                                 key,
                                 Query {
