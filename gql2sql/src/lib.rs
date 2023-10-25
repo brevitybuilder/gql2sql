@@ -536,7 +536,7 @@ fn get_root_query(
     }))
 }
 
-fn get_agg_agg_projection(field: &Field, table_name: String) -> Vec<FunctionArg> {
+fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
     let name = field.name.node.as_ref();
     match name {
         "__typename" => {
@@ -551,7 +551,7 @@ fn get_agg_agg_projection(field: &Field, table_name: String) -> Vec<FunctionArg>
                         quote_style: None,
                     }]),
                     args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                        Value::SingleQuotedString(table_name),
+                        Value::SingleQuotedString(format!("{}_Agg", table_name)),
                     )))],
                     over: None,
                     distinct: false,
@@ -586,27 +586,58 @@ fn get_agg_agg_projection(field: &Field, table_name: String) -> Vec<FunctionArg>
                 .flat_map(|arg| {
                     if let Selection::Field(field) = &arg.node {
                         let field = &field.node;
-                        vec![
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                                Value::SingleQuotedString(field.name.node.to_string()),
-                            ))),
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
-                                order_by: vec![],
-                                name: ObjectName(vec![Ident {
-                                    value: name.to_uppercase(),
-                                    quote_style: None,
-                                }]),
-                                args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                    Expr::Identifier(Ident {
-                                        value: field.name.node.to_string(),
-                                        quote_style: Some(QUOTE_CHAR),
-                                    }),
-                                ))],
-                                over: None,
-                                distinct: false,
-                                special: false,
-                            }))),
-                        ]
+                        let field_name = field.name.node.as_ref();
+                        match field_name {
+                            "__typename" => {
+                                vec![
+                                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                        Value::SingleQuotedString(field_name.to_string()),
+                                    ))),
+                                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(
+                                        Function {
+                                            order_by: vec![],
+                                            name: ObjectName(vec![Ident {
+                                                value: "MIN".to_string(),
+                                                quote_style: None,
+                                            }]),
+                                            args: vec![FunctionArg::Unnamed(
+                                                FunctionArgExpr::Expr(Expr::Value(
+                                                    Value::SingleQuotedString(format!("{}_AggCol", table_name)),
+                                                )),
+                                            )],
+                                            over: None,
+                                            distinct: false,
+                                            special: false,
+                                        },
+                                    ))),
+                                ]
+                            }
+                            _ => {
+                                vec![
+                                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                        Value::SingleQuotedString(field_name.to_string()),
+                                    ))),
+                                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(
+                                        Function {
+                                            order_by: vec![],
+                                            name: ObjectName(vec![Ident {
+                                                value: name.to_uppercase(),
+                                                quote_style: None,
+                                            }]),
+                                            args: vec![FunctionArg::Unnamed(
+                                                FunctionArgExpr::Expr(Expr::Identifier(Ident {
+                                                    value: field_name.to_string(),
+                                                    quote_style: Some(QUOTE_CHAR),
+                                                })),
+                                            )],
+                                            over: None,
+                                            distinct: false,
+                                            special: false,
+                                        },
+                                    ))),
+                                ]
+                            }
+                        }
                     } else {
                         vec![]
                     }
@@ -635,13 +666,13 @@ fn get_agg_agg_projection(field: &Field, table_name: String) -> Vec<FunctionArg>
 
 fn get_aggregate_projection(
     items: &Vec<Positioned<Selection>>,
-    table_name: &str,
+    table_name: &str
 ) -> AnyResult<Vec<FunctionArg>> {
     let mut aggs = vec![];
     for selection in items {
         match &selection.node {
             Selection::Field(field) => {
-                aggs.extend(get_agg_agg_projection(&field.node, table_name.to_string()));
+                aggs.extend(get_agg_agg_projection(&field.node, table_name));
             }
             Selection::FragmentSpread(_) => {
                 return Err(anyhow!(
@@ -664,6 +695,7 @@ fn get_join<'a>(
     selection_items: &'a Vec<Positioned<Selection>>,
     path: Option<&'a str>,
     name: &'a str,
+    kind: &'a str,
     variables: &'a IndexMap<Name, GqlValue>,
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
     final_vars: &'a mut IndexSet<Name>,
@@ -894,7 +926,7 @@ fn get_join<'a>(
         distinct_order,
     );
     if is_aggregate {
-        let aggs = get_aggregate_projection(selection_items, &format!("Agg_{name}"))?;
+        let aggs = get_aggregate_projection(selection_items, kind)?;
         Ok(Join {
             relation: TableFactor::Derived {
                 lateral: true,
@@ -1175,13 +1207,15 @@ fn get_projection<'a>(
                     let arg_bytes = serde_json::to_vec(&field.arguments)?;
                     hasher.write(&arg_bytes);
                     let hash_str = format!("{:x}", hasher.finish());
-                    let name = format!("join.{}.{}", field.name.node.as_ref(), &hash_str[..13]);
+                    let kind = field.name.node.as_ref();
+                    let name = format!("join.{}.{}", kind, &hash_str[..13]);
                     let join = get_join(
                         &field.arguments,
                         &field.directives,
                         &field.selection_set.node.items,
                         path,
                         &name,
+                        kind,
                         variables,
                         sql_vars,
                         final_vars,
@@ -1233,6 +1267,7 @@ fn get_projection<'a>(
                         &frag.selection_set.node.items,
                         path,
                         name,
+                        &relation,
                         variables,
                         sql_vars,
                         final_vars,
@@ -2424,7 +2459,7 @@ pub fn gql2sql(
                         if is_aggregate {
                             let aggs = get_aggregate_projection(
                                 &field.selection_set.node.items,
-                                &format!("Agg_{name}"),
+                                name
                             )?;
                             statements.push((
                                 key,
@@ -3254,8 +3289,10 @@ mod tests {
                     created_at
                     updated_at
                     anothers @relation(table: "N8Ag4Vgad4rYwcRmMJhGR", fields: ["id"], reference:["xb8nemrkchVQgxkXkCPhE"], aggregate: true) {
+                        __typename
                         count
                         avg {
+                          __typename
                           value
                         }
                     }
