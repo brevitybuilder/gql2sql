@@ -130,6 +130,8 @@ fn get_value<'a>(
             distinct: false,
             special: false,
             order_by: vec![],
+            filter: None,
+            null_treatment: None,
         })),
         GqlValue::Object(o) => {
             if o.contains_key("_parentRef") {
@@ -158,6 +160,8 @@ fn get_value<'a>(
                 distinct: false,
                 special: false,
                 order_by: vec![],
+                filter: None,
+                null_treatment: None,
             }))
         }
     }
@@ -356,6 +360,8 @@ fn get_agg_query(
                 over: None,
                 distinct: false,
                 special: false,
+                filter: None,
+                null_treatment: None,
             }),
         }],
         from,
@@ -386,6 +392,7 @@ fn get_root_query(
         }]),
         args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(
             Box::new(Query {
+                limit_by: vec![],
                 with: None,
                 body: Box::new(SetExpr::Select(Box::new(Select {
                     distinct: None,
@@ -400,6 +407,7 @@ fn get_root_query(
                         relation: TableFactor::Derived {
                             lateral: false,
                             subquery: Box::new(Query {
+                                limit_by: vec![],
                                 with: None,
                                 body: Box::new(SetExpr::Select(Box::new(Select {
                                     distinct: None,
@@ -452,10 +460,13 @@ fn get_root_query(
         over: None,
         distinct: false,
         special: false,
+        filter: None,
+        null_treatment: None,
     });
     if !merges.is_empty() {
         base = Expr::BinaryOp {
             left: Box::new(Expr::Cast {
+                format: None,
                 expr: Box::new(base),
                 data_type: DataType::Custom(
                     ObjectName(vec![Ident {
@@ -480,6 +491,8 @@ fn get_root_query(
                     over: None,
                     distinct: false,
                     special: false,
+                    filter: None,
+                    null_treatment: None,
                 }))),
             }),
         };
@@ -505,11 +518,15 @@ fn get_root_query(
                         quote_style: None,
                     }]),
                     args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(base))],
+                    filter: None,
+                    null_treatment: None,
                 }))),
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
                     Value::SingleQuotedString("[]".to_string()),
                 ))),
             ],
+            filter: None,
+            null_treatment: None,
         });
     }
     SetExpr::Select(Box::new(Select {
@@ -556,6 +573,8 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                     over: None,
                     distinct: false,
                     special: false,
+                    filter: None,
+                    null_treatment: None,
                 }))),
             ]
         }
@@ -574,6 +593,8 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                     over: None,
                     distinct: false,
                     special: false,
+                    filter: None,
+                    null_treatment: None,
                 }))),
             ]
         }
@@ -611,6 +632,8 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                                             over: None,
                                             distinct: false,
                                             special: false,
+                                            filter: None,
+                                            null_treatment: None,
                                         },
                                     ))),
                                 ]
@@ -636,6 +659,8 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                                             over: None,
                                             distinct: false,
                                             special: false,
+                                            filter: None,
+                                            null_treatment: None,
                                         },
                                     ))),
                                 ]
@@ -660,6 +685,8 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                     over: None,
                     distinct: false,
                     special: false,
+                    filter: None,
+                    null_treatment: None,
                 }))),
             ]
         }
@@ -934,6 +961,7 @@ fn get_join<'a>(
             relation: TableFactor::Derived {
                 lateral: true,
                 subquery: Box::new(Query {
+                    limit_by: vec![],
                     with: None,
                     body: Box::new(get_agg_query(
                         aggs,
@@ -987,6 +1015,7 @@ fn get_join<'a>(
             relation: TableFactor::Derived {
                 lateral: true,
                 subquery: Box::new(Query {
+                    limit_by: vec![],
                     with: None,
                     body: Box::new(get_root_query(
                         additional_select_items,
@@ -1298,6 +1327,8 @@ fn get_projection<'a>(
                             over: None,
                             distinct: false,
                             special: false,
+                            filter: None,
+                            null_treatment: None,
                         }),
                         condition: Expr::IsNotNull(Box::new(Expr::CompoundIdentifier(vec![
                             Ident {
@@ -1478,6 +1509,7 @@ fn get_filter_query(
         });
     }
     let q = Query {
+        limit_by: vec![],
         with: None,
         body: Box::new(SetExpr::Select(Box::new(Select {
             distinct: if is_distinct {
@@ -1526,6 +1558,7 @@ fn get_filter_query(
     };
     if has_distinct_order && !order_by.is_empty() {
         Query {
+            limit_by: vec![],
             with: None,
             body: Box::new(SetExpr::Select(Box::new(Select {
                 distinct: None,
@@ -1675,9 +1708,8 @@ fn get_order<'a>(
                 });
             }
             GqlValue::Variable(name) => {
-                if let JsonValue::String(value) = sql_vars
-                    .get(name)
-                    .ok_or(anyhow!("Variable {} not found in sql_vars", name.as_str()))?
+                if let JsonValue::String(value) =
+                    sql_vars.get(name).unwrap_or_else(|| &JsonValue::Null)
                 {
                     order_by.push(OrderByExpr {
                         expr: Expr::Identifier(Ident {
@@ -1998,6 +2030,8 @@ fn get_mutation_assignments<'a>(
                 args: vec![],
                 over: None,
                 distinct: false,
+                filter: None,
+                null_treatment: None,
             }),
         });
     }
@@ -2230,11 +2264,15 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                 over: None,
                 distinct: false,
                 special: false,
+                filter: None,
+                null_treatment: None,
             }))),
             FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
                 Value::SingleQuotedString("[]".to_string()),
             ))),
         ],
+        filter: None,
+        null_treatment: None,
     });
     if is_single {
         base = Expr::BinaryOp {
@@ -2244,6 +2282,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
         }
     }
     Statement::Query(Box::new(Query {
+        limit_by: vec![],
         with: Some(With {
             cte_tables: vec![Cte {
                 alias: TableAlias {
@@ -2254,6 +2293,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                     columns: vec![],
                 },
                 query: Box::new(Query {
+                    limit_by: vec![],
                     with: None,
                     body: Box::new(SetExpr::Insert(value)),
                     order_by: vec![],
@@ -2284,6 +2324,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                         ))),
                         FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(
                             Query {
+                                limit_by: vec![],
                                 with: None,
                                 body: Box::new(SetExpr::Select(Box::new(Select {
                                     distinct: None,
@@ -2325,6 +2366,8 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                     over: None,
                     distinct: false,
                     special: false,
+                    filter: None,
+                    null_treatment: None,
                 }),
                 alias: Ident {
                     value: DATA_LABEL.to_string(),
@@ -2465,6 +2508,7 @@ pub fn gql2sql(
                             statements.push((
                                 key,
                                 Query {
+                                    limit_by: vec![],
                                     with: None,
                                     body: Box::new(get_agg_query(
                                         aggs,
@@ -2526,6 +2570,7 @@ pub fn gql2sql(
                             statements.push((
                                 key,
                                 Query {
+                                    limit_by: vec![],
                                     with: None,
                                     body: Box::new(root_query),
                                     order_by: vec![],
@@ -2543,6 +2588,7 @@ pub fn gql2sql(
                 }
             }
             let statement = Statement::Query(Box::new(Query {
+                limit_by: vec![],
                 with: None,
                 body: Box::new(SetExpr::Select(Box::new(Select {
                     distinct: None,
@@ -2576,6 +2622,8 @@ pub fn gql2sql(
                             over: None,
                             distinct: false,
                             special: false,
+                            filter: None,
+                            null_treatment: None,
                         }),
                     }],
                     from: vec![],
@@ -2680,12 +2728,14 @@ pub fn gql2sql(
                                 wrap_mutation(
                                     key,
                                     Statement::Insert {
+                                        ignore: false,
                                         or: None,
                                         into: true,
                                         table_name,
                                         columns,
                                         overwrite: false,
                                         source: Box::new(Query {
+                                            limit_by: vec![],
                                             with: None,
                                             body: Box::new(SetExpr::Values(Values {
                                                 explicit_row: false,
@@ -2811,6 +2861,8 @@ pub fn gql2sql(
                                 wrap_mutation(
                                     key,
                                     Statement::Delete {
+                                        limit: None,
+                                        order_by: vec![],
                                         tables: vec![],
                                         from: vec![TableWithJoins {
                                             relation: TableFactor::Table {
