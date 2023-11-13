@@ -105,11 +105,7 @@ fn get_value<'a>(
                     i + 1,
                 ))));
             }
-            Err(anyhow!(
-                "variable {} not found in sql_vars {:?}",
-                v,
-                sql_vars.keys().collect::<Vec<_>>()
-            ))
+            return Ok(Expr::Value(Value::Null));
         }
         GqlValue::Null => Ok(Expr::Value(Value::Null)),
         GqlValue::String(s) => Ok(Expr::Value(Value::SingleQuotedString(s.clone()))),
