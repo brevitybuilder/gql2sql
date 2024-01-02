@@ -29,6 +29,78 @@ function isMusl() {
 }
 
 switch (platform) {
+  case 'android':
+    switch (arch) {
+      case 'arm64':
+        localFileExisted = existsSync(join(__dirname, 'gql2sql.android-arm64.node'))
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./gql2sql.android-arm64.node')
+          } else {
+            nativeBinding = require('@brevity-builder/gql2sql-android-arm64')
+          }
+        } catch (e) {
+          loadError = e
+        }
+        break
+      case 'arm':
+        localFileExisted = existsSync(join(__dirname, 'gql2sql.android-arm-eabi.node'))
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./gql2sql.android-arm-eabi.node')
+          } else {
+            nativeBinding = require('@brevity-builder/gql2sql-android-arm-eabi')
+          }
+        } catch (e) {
+          loadError = e
+        }
+        break
+      default:
+        throw new Error(`Unsupported architecture on Android ${arch}`)
+    }
+    break
+  case 'win32':
+    switch (arch) {
+      case 'x64':
+        localFileExisted = existsSync(join(__dirname, 'gql2sql.win32-x64-msvc.node'))
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./gql2sql.win32-x64-msvc.node')
+          } else {
+            nativeBinding = require('@brevity-builder/gql2sql-win32-x64-msvc')
+          }
+        } catch (e) {
+          loadError = e
+        }
+        break
+      case 'ia32':
+        localFileExisted = existsSync(join(__dirname, 'gql2sql.win32-ia32-msvc.node'))
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./gql2sql.win32-ia32-msvc.node')
+          } else {
+            nativeBinding = require('@brevity-builder/gql2sql-win32-ia32-msvc')
+          }
+        } catch (e) {
+          loadError = e
+        }
+        break
+      case 'arm64':
+        localFileExisted = existsSync(join(__dirname, 'gql2sql.win32-arm64-msvc.node'))
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./gql2sql.win32-arm64-msvc.node')
+          } else {
+            nativeBinding = require('@brevity-builder/gql2sql-win32-arm64-msvc')
+          }
+        } catch (e) {
+          loadError = e
+        }
+        break
+      default:
+        throw new Error(`Unsupported architecture on Windows: ${arch}`)
+    }
+    break
   case 'darwin':
     localFileExisted = existsSync(join(__dirname, 'gql2sql.darwin-universal.node'))
     try {
@@ -66,6 +138,21 @@ switch (platform) {
         break
       default:
         throw new Error(`Unsupported architecture on macOS: ${arch}`)
+    }
+    break
+  case 'freebsd':
+    if (arch !== 'x64') {
+      throw new Error(`Unsupported architecture on FreeBSD: ${arch}`)
+    }
+    localFileExisted = existsSync(join(__dirname, 'gql2sql.freebsd-x64.node'))
+    try {
+      if (localFileExisted) {
+        nativeBinding = require('./gql2sql.freebsd-x64.node')
+      } else {
+        nativeBinding = require('@brevity-builder/gql2sql-freebsd-x64')
+      }
+    } catch (e) {
+      loadError = e
     }
     break
   case 'linux':
@@ -114,6 +201,43 @@ switch (platform) {
               nativeBinding = require('./gql2sql.linux-arm64-gnu.node')
             } else {
               nativeBinding = require('@brevity-builder/gql2sql-linux-arm64-gnu')
+            }
+          } catch (e) {
+            loadError = e
+          }
+        }
+        break
+      case 'arm':
+        localFileExisted = existsSync(join(__dirname, 'gql2sql.linux-arm-gnueabihf.node'))
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./gql2sql.linux-arm-gnueabihf.node')
+          } else {
+            nativeBinding = require('@brevity-builder/gql2sql-linux-arm-gnueabihf')
+          }
+        } catch (e) {
+          loadError = e
+        }
+        break
+      case 'riscv64':
+        if (isMusl()) {
+          localFileExisted = existsSync(join(__dirname, 'gql2sql.linux-riscv64-musl.node'))
+          try {
+            if (localFileExisted) {
+              nativeBinding = require('./gql2sql.linux-riscv64-musl.node')
+            } else {
+              nativeBinding = require('@brevity-builder/gql2sql-linux-riscv64-musl')
+            }
+          } catch (e) {
+            loadError = e
+          }
+        } else {
+          localFileExisted = existsSync(join(__dirname, 'gql2sql.linux-riscv64-gnu.node'))
+          try {
+            if (localFileExisted) {
+              nativeBinding = require('./gql2sql.linux-riscv64-gnu.node')
+            } else {
+              nativeBinding = require('@brevity-builder/gql2sql-linux-riscv64-gnu')
             }
           } catch (e) {
             loadError = e
