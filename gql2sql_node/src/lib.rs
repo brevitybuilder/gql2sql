@@ -21,13 +21,12 @@ pub struct GqlResult {
 }
 
 #[napi]
-#[must_use]
-pub fn gql2sql(mut args: String) -> anyhow::Result<String> {
+pub fn gql2sql(args: String) -> anyhow::Result<String> {
   let Args {
     query,
     variables,
     operation_name,
-  } = serde_json::from_str(&mut args)?;
+  } = serde_json::from_str(&args)?;
   let ast = parse_query(query)?;
   let (sql, params, tags, is_mutation) = gql2sql_rs(ast, &variables, operation_name)?;
   let result = GqlResult {

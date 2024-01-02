@@ -1,7 +1,7 @@
 use serde_json::Value;
-use std::collections::HashSet;
+use std::{collections::HashSet, hash::BuildHasher};
 
-pub fn cache_tags(value: &Value, tags: &mut HashSet<String>) {
+pub fn cache_tags<S: BuildHasher>(value: &Value, tags: &mut HashSet<String, S>) {
     match value {
         Value::Object(map) => {
             if let Some(Value::String(typename)) = map.get("__typename") {

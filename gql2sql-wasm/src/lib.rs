@@ -28,13 +28,13 @@ pub struct GqlResult {
 }
 
 #[wasm_bindgen]
-pub fn gql2sql(mut args: String) -> Result<String, JsError> {
+pub fn gql2sql(args: String) -> Result<String, JsError> {
     set_panic_hook();
     let Args {
         query,
         variables,
         operation_name,
-    } = serde_json::from_str(&mut args)?;
+    } = serde_json::from_str(&args)?;
     let ast = parse_query(query)?;
     let (sql, params, tags, is_mutation) =
         gql2sql_rs(ast, &variables, operation_name).map_err(|e| JsError::new(&e.to_string()))?;

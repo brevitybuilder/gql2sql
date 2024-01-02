@@ -105,7 +105,7 @@ fn get_value<'a>(
                     i + 1,
                 ))));
             }
-            return Ok(Expr::Value(Value::Null));
+            Ok(Expr::Value(Value::Null))
         }
         GqlValue::Null => Ok(Expr::Value(Value::Null)),
         GqlValue::String(s) => Ok(Expr::Value(Value::SingleQuotedString(s.clone()))),
@@ -208,7 +208,7 @@ fn get_expr<'a>(
             escape_char: None,
         })),
         "null" => Ok(Some(Expr::IsNull(Box::new(left)))),
-        "not_null" => Ok(Some(Expr::IsNull(Box::new(left)))),
+        "not_null" => Ok(Some(Expr::IsNotNull(Box::new(left)))),
         _ => {
             let op = get_op(operator);
             if let Expr::Value(Value::Null) = right_value {
@@ -282,7 +282,7 @@ fn get_filter(
     if args.contains_key("children") {
         if let Some(GqlValue::List(children)) = args.get("children") {
             let op = if let Some(val) = args.get("logicalOperator") {
-                let op_name = get_string_or_variable(val, &sql_vars)?;
+                let op_name = get_string_or_variable(val, sql_vars)?;
                 get_logical_operator(op_name.to_uppercase().as_str())?
             } else {
                 BinaryOperator::And
@@ -404,7 +404,7 @@ fn get_root_query(
                         relation: TableFactor::Derived {
                             lateral: false,
                             subquery: Box::new(Query {
-                for_clause: None,
+                                for_clause: None,
                                 limit_by: vec![],
                                 with: None,
                                 body: Box::new(SetExpr::Select(Box::new(Select {
@@ -566,7 +566,7 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                         quote_style: None,
                     }]),
                     args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                        Value::SingleQuotedString(format!("{}_Agg", table_name)),
+                        Value::SingleQuotedString(format!("{table_name}_Agg")),
                     )))],
                     over: None,
                     distinct: false,
@@ -622,8 +622,7 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                                             args: vec![FunctionArg::Unnamed(
                                                 FunctionArgExpr::Expr(Expr::Value(
                                                     Value::SingleQuotedString(format!(
-                                                        "{}_AggCol",
-                                                        table_name
+                                                        "{table_name}_AggCol"
                                                     )),
                                                 )),
                                             )],
@@ -959,7 +958,7 @@ fn get_join<'a>(
             relation: TableFactor::Derived {
                 lateral: true,
                 subquery: Box::new(Query {
-                for_clause: None,
+                    for_clause: None,
                     limit_by: vec![],
                     with: None,
                     body: Box::new(get_agg_query(
@@ -1014,7 +1013,7 @@ fn get_join<'a>(
             relation: TableFactor::Derived {
                 lateral: true,
                 subquery: Box::new(Query {
-                for_clause: None,
+                    for_clause: None,
                     limit_by: vec![],
                     with: None,
                     body: Box::new(get_root_query(
@@ -1509,7 +1508,7 @@ fn get_filter_query(
         });
     }
     let q = Query {
-                for_clause: None,
+        for_clause: None,
         limit_by: vec![],
         with: None,
         body: Box::new(SetExpr::Select(Box::new(Select {
@@ -1559,7 +1558,7 @@ fn get_filter_query(
     };
     if has_distinct_order && !order_by.is_empty() {
         Query {
-                for_clause: None,
+            for_clause: None,
             limit_by: vec![],
             with: None,
             body: Box::new(SetExpr::Select(Box::new(Select {
@@ -1710,9 +1709,7 @@ fn get_order<'a>(
                 });
             }
             GqlValue::Variable(name) => {
-                if let JsonValue::String(value) =
-                    sql_vars.get(name).unwrap_or_else(|| &JsonValue::Null)
-                {
+                if let JsonValue::String(value) = sql_vars.get(name).unwrap_or(&JsonValue::Null) {
                     order_by.push(OrderByExpr {
                         expr: Expr::Identifier(Ident {
                             value: key.as_str().to_owned(),
@@ -2284,7 +2281,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
         }
     }
     Statement::Query(Box::new(Query {
-                for_clause: None,
+        for_clause: None,
         limit_by: vec![],
         with: Some(With {
             cte_tables: vec![Cte {
@@ -2296,7 +2293,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                     columns: vec![],
                 },
                 query: Box::new(Query {
-                for_clause: None,
+                    for_clause: None,
                     limit_by: vec![],
                     with: None,
                     body: Box::new(SetExpr::Insert(value)),
@@ -2328,7 +2325,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                         ))),
                         FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(
                             Query {
-                for_clause: None,
+                                for_clause: None,
                                 limit_by: vec![],
                                 with: None,
                                 body: Box::new(SetExpr::Select(Box::new(Select {
@@ -2408,7 +2405,7 @@ impl Debug for Tag {
         if self.value.is_some() {
             return write!(f, "{}:{}", self.key, self.value.as_ref().expect("is_some"));
         }
-        return write!(f, "{}", self.key);
+        write!(f, "{}", self.key)
     }
 }
 
@@ -2417,7 +2414,7 @@ impl ToString for Tag {
         if self.value.is_some() {
             return format!("{}:{}", self.key, self.value.as_ref().expect("is_some"));
         }
-        return self.key.clone();
+        self.key.clone()
     }
 }
 
@@ -2513,7 +2510,7 @@ pub fn gql2sql(
                             statements.push((
                                 key,
                                 Query {
-                for_clause: None,
+                                    for_clause: None,
                                     limit_by: vec![],
                                     with: None,
                                     body: Box::new(get_agg_query(
@@ -2576,7 +2573,7 @@ pub fn gql2sql(
                             statements.push((
                                 key,
                                 Query {
-                for_clause: None,
+                                    for_clause: None,
                                     limit_by: vec![],
                                     with: None,
                                     body: Box::new(root_query),
@@ -2743,7 +2740,7 @@ pub fn gql2sql(
                                         columns,
                                         overwrite: false,
                                         source: Some(Box::new(Query {
-                for_clause: None,
+                                            for_clause: None,
                                             limit_by: vec![],
                                             with: None,
                                             body: Box::new(SetExpr::Values(Values {
@@ -3699,12 +3696,12 @@ query BrevityQuery($filter_projectId: diaVVW4hgJD8BQ8bDJQwwFilter!) {
         let (statement, params, tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
-  "filter_projectId": {
-    "field": "id",
-    "operator": "eq",
-    "value": "9MngMnBffC4z3YhebJMy3"
-  }
-                          })),
+            "filter_projectId": {
+              "field": "id",
+              "operator": "eq",
+              "value": "9MngMnBffC4z3YhebJMy3"
+            }
+                                    })),
             None,
         )?;
 
