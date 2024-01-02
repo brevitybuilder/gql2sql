@@ -388,6 +388,7 @@ fn get_root_query(
         }]),
         args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(
             Box::new(Query {
+                for_clause: None,
                 limit_by: vec![],
                 with: None,
                 body: Box::new(SetExpr::Select(Box::new(Select {
@@ -403,6 +404,7 @@ fn get_root_query(
                         relation: TableFactor::Derived {
                             lateral: false,
                             subquery: Box::new(Query {
+                for_clause: None,
                                 limit_by: vec![],
                                 with: None,
                                 body: Box::new(SetExpr::Select(Box::new(Select {
@@ -957,6 +959,7 @@ fn get_join<'a>(
             relation: TableFactor::Derived {
                 lateral: true,
                 subquery: Box::new(Query {
+                for_clause: None,
                     limit_by: vec![],
                     with: None,
                     body: Box::new(get_agg_query(
@@ -1011,6 +1014,7 @@ fn get_join<'a>(
             relation: TableFactor::Derived {
                 lateral: true,
                 subquery: Box::new(Query {
+                for_clause: None,
                     limit_by: vec![],
                     with: None,
                     body: Box::new(get_root_query(
@@ -1505,6 +1509,7 @@ fn get_filter_query(
         });
     }
     let q = Query {
+                for_clause: None,
         limit_by: vec![],
         with: None,
         body: Box::new(SetExpr::Select(Box::new(Select {
@@ -1554,6 +1559,7 @@ fn get_filter_query(
     };
     if has_distinct_order && !order_by.is_empty() {
         Query {
+                for_clause: None,
             limit_by: vec![],
             with: None,
             body: Box::new(SetExpr::Select(Box::new(Select {
@@ -2278,6 +2284,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
         }
     }
     Statement::Query(Box::new(Query {
+                for_clause: None,
         limit_by: vec![],
         with: Some(With {
             cte_tables: vec![Cte {
@@ -2289,6 +2296,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                     columns: vec![],
                 },
                 query: Box::new(Query {
+                for_clause: None,
                     limit_by: vec![],
                     with: None,
                     body: Box::new(SetExpr::Insert(value)),
@@ -2320,6 +2328,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                         ))),
                         FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(
                             Query {
+                for_clause: None,
                                 limit_by: vec![],
                                 with: None,
                                 body: Box::new(SetExpr::Select(Box::new(Select {
@@ -2504,6 +2513,7 @@ pub fn gql2sql(
                             statements.push((
                                 key,
                                 Query {
+                for_clause: None,
                                     limit_by: vec![],
                                     with: None,
                                     body: Box::new(get_agg_query(
@@ -2566,6 +2576,7 @@ pub fn gql2sql(
                             statements.push((
                                 key,
                                 Query {
+                for_clause: None,
                                     limit_by: vec![],
                                     with: None,
                                     body: Box::new(root_query),
@@ -2584,6 +2595,7 @@ pub fn gql2sql(
                 }
             }
             let statement = Statement::Query(Box::new(Query {
+                for_clause: None,
                 limit_by: vec![],
                 with: None,
                 body: Box::new(SetExpr::Select(Box::new(Select {
@@ -2730,7 +2742,8 @@ pub fn gql2sql(
                                         table_name,
                                         columns,
                                         overwrite: false,
-                                        source: Box::new(Query {
+                                        source: Some(Box::new(Query {
+                for_clause: None,
                                             limit_by: vec![],
                                             with: None,
                                             body: Box::new(SetExpr::Values(Values {
@@ -2742,7 +2755,7 @@ pub fn gql2sql(
                                             offset: None,
                                             fetch: None,
                                             locks: vec![],
-                                        }),
+                                        })),
                                         partitioned: None,
                                         after_columns: vec![],
                                         table: false,
@@ -3671,129 +3684,14 @@ mod tests {
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-query BrevityQuery($first_VJ9DFD4zeK7zHf9FkUkak_id: undefined, $order_VJ9DFD4zeK7zHf9FkUkak_id: [PTGBjFqVb7pWraKPPCgUG_Order], $filter_currentUser: UserFilter!) {
-  currentUser: getUserById(filter: $filter_currentUser) @meta(table: "User", single: true, display: "Get User by Id") {
-    id
-    ARcE3fETmim6HBcpYdKyC_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["id"], single: true, references: ["ARcE3fETmim6HBcpYdKyC_id"]) {
-      AbEWHtwAYBa7VjwfzEwVH
-      PYLFGFjqfYY4yhri3zjAm_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["id"], single: true, references: ["PYLFGFjqfYY4yhri3zjAm_id"]) {
-        rUCfHi8UqKHWdJUyfBAG4
-        qzDiqE7UMR7KGGMxyNm7n
-        Hg4Rmh8pbH44NJe9eKKxT
-        PYLFGFjqfYY4yhri3zjAm_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["PYLFGFjqfYY4yhri3zjAm_id"], references: ["id"]) {
-          AbEWHtwAYBa7VjwfzEwVH
-          PYLFGFjqfYY4yhri3zjAm_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["id"], single: true, references: ["PYLFGFjqfYY4yhri3zjAm_id"]) {
-            id
-            __typename
-          }
-          id
-          __typename
-          created_at
-          updated_at
-          Vnb7QPmr4dLnT3jgqrkAa
-          aPK3x7AcL9mKWH4bxhrc8
-          VJ9DFD4zeK7zHf9FkUkak_id(
-            first: $first_VJ9DFD4zeK7zHf9FkUkak_id
-            order: $order_VJ9DFD4zeK7zHf9FkUkak_id
-          ) @relation(table: "PTGBjFqVb7pWraKPPCgUG", fields: ["VJ9DFD4zeK7zHf9FkUkak_id"], references: ["id"]) {
-            id
-            __typename
-          }
-        }
-        id
-        __typename
-        created_at
-        updated_at
-      }
-      id
-      __typename
-      created_at
-      updated_at
-      Vnb7QPmr4dLnT3jgqrkAa
-      aPK3x7AcL9mKWH4bxhrc8
-      VJ9DFD4zeK7zHf9FkUkak_id(
-        first: $first_VJ9DFD4zeK7zHf9FkUkak_id
-        order: $order_VJ9DFD4zeK7zHf9FkUkak_id
-      ) @relation(table: "PTGBjFqVb7pWraKPPCgUG", fields: ["VJ9DFD4zeK7zHf9FkUkak_id"], references: ["id"]) {
-        i4XQMfhQgQged3UWGEbPz_id @relation(table: "User", fields: ["id"], single: true, references: ["i4XQMfhQgQged3UWGEbPz_id"]) {
-          id
-          ARcE3fETmim6HBcpYdKyC_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["id"], single: true, references: ["ARcE3fETmim6HBcpYdKyC_id"]) {
-            id
-            __typename
-          }
-          rXarJUPJCNWfQ7UAr9AtV
-          MiBMitGLrNdnmC3jF6LAr_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["MiBMitGLrNdnmC3jF6LAr_id"], single: true, references: ["id"]) {
-            id
-            __typename
-          }
-          __typename
-          name
-          email
-          created_at
-          updated_at
-          profile_image_url
-          TacAeeEgihFCBran9fqi7
-        }
-        b7haXHE4mJwq47P66Rg3C
-        created_at
-        id
-        __typename
-        updated_at
-      }
-    }
-    rXarJUPJCNWfQ7UAr9AtV
-    MiBMitGLrNdnmC3jF6LAr_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["MiBMitGLrNdnmC3jF6LAr_id"], single: true, references: ["id"]) {
-      rUCfHi8UqKHWdJUyfBAG4
-      qzDiqE7UMR7KGGMxyNm7n
-      Hg4Rmh8pbH44NJe9eKKxT
-      PYLFGFjqfYY4yhri3zjAm_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["PYLFGFjqfYY4yhri3zjAm_id"], references: ["id"]) {
-        AbEWHtwAYBa7VjwfzEwVH
-        PYLFGFjqfYY4yhri3zjAm_id @relation(table: "THMMABc8JfUUqXymJAKtL", fields: ["id"], single: true, references: ["PYLFGFjqfYY4yhri3zjAm_id"]) {
-          rUCfHi8UqKHWdJUyfBAG4
-          qzDiqE7UMR7KGGMxyNm7n
-          Hg4Rmh8pbH44NJe9eKKxT
-          PYLFGFjqfYY4yhri3zjAm_id @relation(table: "BeigDk3F6yC7Hq8UbcXfa", fields: ["PYLFGFjqfYY4yhri3zjAm_id"], references: ["id"]) {
-            id
-            __typename
-          }
-          id
-          __typename
-          created_at
-          updated_at
-        }
-        id
-        __typename
-        created_at
-        updated_at
-        Vnb7QPmr4dLnT3jgqrkAa
-        aPK3x7AcL9mKWH4bxhrc8
-        VJ9DFD4zeK7zHf9FkUkak_id(
-          first: $first_VJ9DFD4zeK7zHf9FkUkak_id
-          order: $order_VJ9DFD4zeK7zHf9FkUkak_id
-        ) @relation(table: "PTGBjFqVb7pWraKPPCgUG", fields: ["VJ9DFD4zeK7zHf9FkUkak_id"], references: ["id"]) {
-          i4XQMfhQgQged3UWGEbPz_id @relation(table: "User", fields: ["id"], single: true, references: ["i4XQMfhQgQged3UWGEbPz_id"]) {
-            id
-            __typename
-          }
-          b7haXHE4mJwq47P66Rg3C
-          created_at
-          id
-          __typename
-          updated_at
-        }
-      }
-      id
-      __typename
-      created_at
-      updated_at
-    }
+query BrevityQuery($filter_projectId: diaVVW4hgJD8BQ8bDJQwwFilter!) {
+  projectId: getdiaVVW4hgJD8BQ8bDJQwwById(filter: $filter_projectId) @meta(table: "diaVVW4hgJD8BQ8bDJQww", single: true, display: "Get Project by Id") {
+    aqiB3n8XLX9LzAiUkdgGm
     __typename
-    name
-    email
+    id
     created_at
     updated_at
-    profile_image_url
-    TacAeeEgihFCBran9fqi7
+    P3it4mHEW3fWVmTHfHnkx
   }
 }
             "#,
@@ -3801,17 +3699,11 @@ query BrevityQuery($first_VJ9DFD4zeK7zHf9FkUkak_id: undefined, $order_VJ9DFD4zeK
         let (statement, params, tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
-            "first_VJ9DFD4zeK7zHf9FkUkak_id": 50,
-            "order_VJ9DFD4zeK7zHf9FkUkak_id": [
-              {
-                "created_at": "ASC"
-              }
-            ],
-            "filter_currentUser": {
-              "field": "id",
-              "operator": "eq",
-              "value": "RBXFUmzpnXJxWAGgwgnwe"
-            }
+  "filter_projectId": {
+    "field": "id",
+    "operator": "eq",
+    "value": "9MngMnBffC4z3YhebJMy3"
+  }
                           })),
             None,
         )?;
