@@ -88,7 +88,7 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
       - name: Cache cargo
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index/
@@ -140,7 +140,7 @@ jobs:
           cache: yarn
           cache-dependency-path: gql2sql_node/yarn.lock
       - name: Cache NPM dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: .yarn/cache
           key: npm-cache-test-linux-x64-gnu-${{ matrix.node }}
@@ -178,7 +178,7 @@ jobs:
           cache: yarn
           cache-dependency-path: gql2sql_node/yarn.lock
       - name: Cache NPM dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: .yarn/cache
           key: npm-cache-test-x86_64-unknown-linux-musl-${{ matrix.node }}
@@ -218,7 +218,7 @@ jobs:
         run: ls -R .
         shell: bash
       - name: Cache NPM dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: .yarn/cache
           key: npm-cache-test-linux-aarch64-musl-${{ matrix.node }}
@@ -255,7 +255,7 @@ jobs:
           cache: yarn
           cache-dependency-path: gql2sql_node/yarn.lock
       - name: Cache NPM dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: .yarn/cache
           key: npm-cache-ubuntu-latest-publish
