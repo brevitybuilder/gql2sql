@@ -2653,7 +2653,7 @@ pub fn gql2sql(
                 Some(
                     final_vars
                         .into_iter()
-                        .filter_map(|n| sql_vars.remove(&n))
+                        .filter_map(|n| sql_vars.swap_remove(&n))
                         .collect(),
                 )
             };
@@ -2725,7 +2725,7 @@ pub fn gql2sql(
                                 Some(
                                     final_vars
                                         .into_iter()
-                                        .filter_map(|n| sql_vars.remove(&n))
+                                        .filter_map(|n| sql_vars.swap_remove(&n))
                                         .collect(),
                                 )
                             };
@@ -2734,6 +2734,9 @@ pub fn gql2sql(
                                     key,
                                     Statement::Insert {
                                         ignore: false,
+                                        priority: None,
+                                        replace_into: false,
+                                        table_alias: None,
                                         or: None,
                                         into: true,
                                         table_name,
@@ -2799,7 +2802,7 @@ pub fn gql2sql(
                                 Some(
                                     final_vars
                                         .into_iter()
-                                        .filter_map(|n| sql_vars.remove(&n))
+                                        .filter_map(|n| sql_vars.swap_remove(&n))
                                         .collect(),
                                 )
                             };
@@ -2859,7 +2862,7 @@ pub fn gql2sql(
                                 Some(
                                     final_vars
                                         .into_iter()
-                                        .filter_map(|n| sql_vars.remove(&n))
+                                        .filter_map(|n| sql_vars.swap_remove(&n))
                                         .collect(),
                                 )
                             };

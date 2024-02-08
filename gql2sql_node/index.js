@@ -244,6 +244,18 @@ switch (platform) {
           }
         }
         break
+      case 's390x':
+        localFileExisted = existsSync(join(__dirname, 'gql2sql.linux-s390x-gnu.node'))
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./gql2sql.linux-s390x-gnu.node')
+          } else {
+            nativeBinding = require('@brevity-builder/gql2sql-linux-s390x-gnu')
+          }
+        } catch (e) {
+          loadError = e
+        }
+        break
       default:
         throw new Error(`Unsupported architecture on Linux: ${arch}`)
     }
