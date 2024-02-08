@@ -235,7 +235,7 @@ jobs:
           options: '-v ${{ github.workspace }}:/build -w /build/gql2sql_node'
           run: |
             set -e
-            apk add --update --no-cache nodejs npm yarn
+            apk add --update --no-cache nodejs-current npm yarn
             yarn test
   publish:
     name: Publish
