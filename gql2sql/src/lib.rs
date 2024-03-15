@@ -29,10 +29,7 @@ use consts::TYPENAME;
 use lazy_static::lazy_static;
 use regex::Regex;
 use sqlparser::ast::{
-    Assignment, BinaryOperator, Cte, DataType, Expr, Function, FunctionArg, FunctionArgExpr,
-    GroupByExpr, Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows,
-    OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, TableAlias, TableFactor,
-    TableWithJoins, Value, Values, WildcardAdditionalOptions, With,
+    Assignment, BinaryOperator, Cte, DataType, Expr, FromTable, Function, FunctionArg, FunctionArgExpr, GroupByExpr, Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values, WildcardAdditionalOptions, With
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -353,6 +350,7 @@ fn get_agg_query(
     alias: &str,
 ) -> SetExpr {
     SetExpr::Select(Box::new(Select {
+        value_table_mode: None,
         distinct: None,
         named_window: vec![],
         top: None,
@@ -408,6 +406,7 @@ fn get_root_query(
                 limit_by: vec![],
                 with: None,
                 body: Box::new(SetExpr::Select(Box::new(Select {
+                    value_table_mode: None,
                     distinct: None,
                     named_window: vec![],
                     top: None,
@@ -424,6 +423,7 @@ fn get_root_query(
                                 limit_by: vec![],
                                 with: None,
                                 body: Box::new(SetExpr::Select(Box::new(Select {
+                                    value_table_mode: None,
                                     distinct: None,
                                     named_window: vec![],
                                     top: None,
@@ -544,6 +544,7 @@ fn get_root_query(
         });
     }
     SetExpr::Select(Box::new(Select {
+        value_table_mode: None,
         distinct: None,
         named_window: vec![],
         top: None,
@@ -1528,6 +1529,7 @@ fn get_filter_query(
         limit_by: vec![],
         with: None,
         body: Box::new(SetExpr::Select(Box::new(Select {
+            value_table_mode: None,
             distinct: if is_distinct {
                 Some(sqlparser::ast::Distinct::Distinct)
             } else {
@@ -1578,6 +1580,7 @@ fn get_filter_query(
             limit_by: vec![],
             with: None,
             body: Box::new(SetExpr::Select(Box::new(Select {
+                value_table_mode: None,
                 distinct: None,
                 named_window: vec![],
                 top: None,
@@ -2315,6 +2318,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
         limit_by: vec![],
         with: Some(With {
             cte_tables: vec![Cte {
+                materialized: None,
                 alias: TableAlias {
                     name: Ident {
                         value: "result".to_string(),
@@ -2338,6 +2342,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
             recursive: false,
         }),
         body: Box::new(SetExpr::Select(Box::new(Select {
+            value_table_mode: None,
             distinct: None,
             named_window: vec![],
             top: None,
@@ -2359,6 +2364,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                                 limit_by: vec![],
                                 with: None,
                                 body: Box::new(SetExpr::Select(Box::new(Select {
+                                    value_table_mode: None,
                                     distinct: None,
                                     named_window: vec![],
                                     top: None,
@@ -2626,6 +2632,7 @@ pub fn gql2sql(
                 limit_by: vec![],
                 with: None,
                 body: Box::new(SetExpr::Select(Box::new(Select {
+                    value_table_mode: None,
                     distinct: None,
                     named_window: vec![],
                     top: None,
@@ -2903,7 +2910,7 @@ pub fn gql2sql(
                                         limit: None,
                                         order_by: vec![],
                                         tables: vec![],
-                                        from: vec![TableWithJoins {
+                                        from: FromTable::WithFromKeyword(vec![TableWithJoins {
                                             relation: TableFactor::Table {
                                                 partitions: vec![],
                                                 version: None,
@@ -2913,7 +2920,7 @@ pub fn gql2sql(
                                                 with_hints: vec![],
                                             },
                                             joins: vec![],
-                                        }],
+                                        }]),
                                         using: None,
                                         selection,
                                         returning: Some(vec![
