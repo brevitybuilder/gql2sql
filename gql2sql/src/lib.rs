@@ -29,7 +29,10 @@ use consts::TYPENAME;
 use lazy_static::lazy_static;
 use regex::Regex;
 use sqlparser::ast::{
-    Assignment, BinaryOperator, Cte, DataType, Expr, FromTable, Function, FunctionArg, FunctionArgExpr, GroupByExpr, Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values, WildcardAdditionalOptions, With
+    Assignment, BinaryOperator, Cte, DataType, Expr, FromTable, Function, FunctionArg,
+    FunctionArgExpr, GroupByExpr, Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset,
+    OffsetRows, OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, TableAlias,
+    TableFactor, TableWithJoins, Value, Values, WildcardAdditionalOptions, With,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
