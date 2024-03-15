@@ -265,6 +265,14 @@ fn get_filter(
         .get("operator")
         .map(|v| get_string_or_variable(v, sql_vars))
         .ok_or(anyhow!("operator not found"))??;
+    let ignore_null = args
+        .get("ignoreEmpty")
+        .map(|v| match v {
+            GqlValue::Boolean(b) => *b,
+            _ => false,
+        })
+        .unwrap_or(false);
+
     let value = args.get("value").unwrap_or_else(|| &GqlValue::Null);
     if operator == "eq" {
         if let Ok(value) = get_string_or_variable(value, sql_vars) {
@@ -278,7 +286,15 @@ fn get_filter(
         value: field,
         quote_style: Some(QUOTE_CHAR),
     });
-    let primary = get_expr(left, operator.as_str(), value, sql_vars, final_vars)?;
+    let primary = if ignore_null {
+        if should_add_filter(&value, sql_vars) {
+            get_expr(left, operator.as_str(), value, sql_vars, final_vars)?
+        } else {
+            None
+        }
+    } else {
+        get_expr(left, operator.as_str(), value, sql_vars, final_vars)?
+    };
     if args.contains_key("children") {
         if let Some(GqlValue::List(children)) = args.get("children") {
             let op = if let Some(val) = args.get("logicalOperator") {
@@ -1804,6 +1820,18 @@ fn flatten_variables(
     (parameters, sql_vars)
 }
 
+fn should_add_filter<'a>(value: &'a GqlValue, sql_vars: &'a mut IndexMap<Name, JsonValue>) -> bool {
+    match &value {
+        GqlValue::Null => false,
+        GqlValue::Variable(v) => match sql_vars.get(v) {
+            None => false,
+            Some(JsonValue::Null) => false,
+            _ => true,
+        },
+        _ => true,
+    }
+}
+
 fn parse_args<'a>(
     arguments: &'a Vec<(Positioned<Name>, Positioned<GqlValue>)>,
     variables: &'a IndexMap<Name, GqlValue>,
@@ -1839,24 +1867,26 @@ fn parse_args<'a>(
         }
         match (key, value) {
             ("id" | "email" | "A" | "B", value) => {
-                let new_selection = get_expr(
-                    Expr::Identifier(Ident {
-                        value: key.to_string(),
-                        quote_style: Some(QUOTE_CHAR),
-                    }),
-                    "eq",
-                    &value,
-                    sql_vars,
-                    final_vars,
-                )?;
-                if selection.is_some() && new_selection.is_some() {
-                    selection = Some(Expr::BinaryOp {
-                        left: Box::new(selection.expect("gaurded by condition")),
-                        op: BinaryOperator::And,
-                        right: Box::new(new_selection.expect("gaurded by condition")),
-                    });
-                } else {
-                    selection = new_selection;
+                if should_add_filter(&value, sql_vars) {
+                    let new_selection = get_expr(
+                        Expr::Identifier(Ident {
+                            value: key.to_string(),
+                            quote_style: Some(QUOTE_CHAR),
+                        }),
+                        "eq",
+                        &value,
+                        sql_vars,
+                        final_vars,
+                    )?;
+                    if selection.is_some() && new_selection.is_some() {
+                        selection = Some(Expr::BinaryOp {
+                            left: Box::new(selection.expect("gaurded by condition")),
+                            op: BinaryOperator::And,
+                            right: Box::new(new_selection.expect("gaurded by condition")),
+                        });
+                    } else {
+                        selection = new_selection;
+                    }
                 }
             }
             ("filter" | "where", GqlValue::Object(filter)) => {
@@ -2968,6 +2998,27 @@ mod tests {
         )?;
         let (statement, _params, _tags, _is_mutation) =
             gql2sql(gqlast, &None, Some("App".to_owned()))?;
+        assert_snapshot!(statement.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn simple_ignore() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"query App($value: String) {
+                app(filter: { field: "id", operator: "eq", value: $value, ignoreEmpty: true }, order: { name: ASC }) @meta(table: "App") {
+                    id
+                }
+            }
+        "#,
+        )?;
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
+            gqlast,
+            &Some(json!({
+                "value": null
+            })),
+            Some("App".to_owned()),
+        )?;
         assert_snapshot!(statement.to_string());
         Ok(())
     }
