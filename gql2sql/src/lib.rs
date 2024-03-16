@@ -1873,8 +1873,9 @@ fn parse_args<'a>(
         }
         match (key, value) {
             ("id" | "email" | "A" | "B", value) => {
+                let new_selection;
                 if should_add_filter(&value, sql_vars) {
-                    let new_selection = get_expr(
+                    new_selection = get_expr(
                         Expr::Identifier(Ident {
                             value: key.to_string(),
                             quote_style: Some(QUOTE_CHAR),
@@ -1884,15 +1885,17 @@ fn parse_args<'a>(
                         sql_vars,
                         final_vars,
                     )?;
-                    if selection.is_some() && new_selection.is_some() {
-                        selection = Some(Expr::BinaryOp {
-                            left: Box::new(selection.expect("gaurded by condition")),
-                            op: BinaryOperator::And,
-                            right: Box::new(new_selection.expect("gaurded by condition")),
-                        });
-                    } else {
-                        selection = new_selection;
-                    }
+                } else {
+                    new_selection = Some(Expr::Value(Value::Boolean(false)));
+                }
+                if selection.is_some() && new_selection.is_some() {
+                    selection = Some(Expr::BinaryOp {
+                        left: Box::new(selection.expect("gaurded by condition")),
+                        op: BinaryOperator::And,
+                        right: Box::new(new_selection.expect("gaurded by condition")),
+                    });
+                } else {
+                    selection = new_selection;
                 }
             }
             ("filter" | "where", GqlValue::Object(filter)) => {
