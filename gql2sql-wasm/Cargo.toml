@@ -25,7 +25,7 @@ console_error_panic_hook = { version = "0.1.7", optional = true }
 wee_alloc = { version = "0.4.5", optional = true }
 gql2sql = { path = "../gql2sql" }
 serde = { version = "1.0.197", features = ["derive"] }
-async-graphql-parser = "7.0.2"
+async-graphql-parser = "7.0.3"
 serde_json = "1.0.114"
 
 [dev-dependencies]

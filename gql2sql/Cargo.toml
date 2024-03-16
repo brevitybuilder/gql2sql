@@ -11,7 +11,7 @@ readme = "../README.md"
 [dependencies]
 anyhow = "1.0"
 graphql-parser = "0.4"
-async-graphql-parser = "7.0.2"
+async-graphql-parser = "7.0.3"
 async-graphql-value = "7.0.2"
 sqlparser = "0.44"
 indexmap = "2.2.5"
