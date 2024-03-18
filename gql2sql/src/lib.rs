@@ -269,6 +269,10 @@ fn get_filter(
         .get("ignoreEmpty")
         .map(|v| match v {
             GqlValue::Boolean(b) => *b,
+            GqlValue::Variable(v) => match sql_vars.get(v) {
+                Some(JsonValue::Bool(b)) => *b,
+                _ => false
+            },
             _ => false,
         })
         .unwrap_or(false);
@@ -286,12 +290,10 @@ fn get_filter(
         value: field,
         quote_style: Some(QUOTE_CHAR),
     });
-    let primary = if ignore_null {
-        if should_add_filter(&value, sql_vars) {
-            get_expr(left, operator.as_str(), value, sql_vars, final_vars)?
-        } else {
-            None
-        }
+    println!("value: {}", value);
+    println!("ignore_null: {}", ignore_null);
+    let primary = if ignore_null && !should_add_filter(&value, sql_vars) {
+        None
     } else {
         get_expr(left, operator.as_str(), value, sql_vars, final_vars)?
     };
@@ -3018,8 +3020,8 @@ mod tests {
     #[test]
     fn simple_ignore() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
-            r#"query App($value: String) {
-                app(filter: { field: "id", operator: "eq", value: $value, ignoreEmpty: true }, order: { name: ASC }) @meta(table: "App") {
+            r#"query App($filter: Filter) {
+                app(filter: $filter, order: { name: ASC }) @meta(table: "App") {
                     id
                 }
             }
@@ -3028,7 +3030,18 @@ mod tests {
         let (statement, _params, _tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
-                "value": null
+                "filter": {
+                    "field": "id",
+                    "operator": "eq",
+                    "value": null,
+                    "ignoreEmpty": true,
+                    "children": [{
+                        "field": "other",
+                        "operator": "gte",
+                        "value": null,
+                        "ignoreEmpty": true,
+                    }]
+                }
             })),
             Some("App".to_owned()),
         )?;
