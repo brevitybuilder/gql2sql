@@ -271,7 +271,7 @@ fn get_filter(
             GqlValue::Boolean(b) => *b,
             GqlValue::Variable(v) => match sql_vars.get(v) {
                 Some(JsonValue::Bool(b)) => *b,
-                _ => false
+                _ => false,
             },
             _ => false,
         })
