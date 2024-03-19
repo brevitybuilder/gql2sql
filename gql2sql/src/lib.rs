@@ -290,8 +290,6 @@ fn get_filter(
         value: field,
         quote_style: Some(QUOTE_CHAR),
     });
-    println!("value: {}", value);
-    println!("ignore_null: {}", ignore_null);
     let primary = if ignore_null && !should_add_filter(&value, sql_vars) {
         None
     } else {
@@ -1834,11 +1832,11 @@ fn should_add_filter<'a>(value: &'a GqlValue, sql_vars: &'a mut IndexMap<Name, J
         GqlValue::Variable(v) => {
             let val = sql_vars.get(v);
             match val {
-            None => false,
-            Some(JsonValue::Null) => false,
-            _ => true,
+                None => false,
+                Some(JsonValue::Null) => false,
+                _ => true,
+            }
         }
-        },
         _ => true,
     }
 }
@@ -1881,9 +1879,7 @@ fn parse_args<'a>(
         match (key, value) {
             ("id" | "email" | "A" | "B", value) => {
                 let new_selection;
-                println!("found id");
                 if should_add_filter(&value, sql_vars) {
-                    println!("should add filter");
                     new_selection = get_expr(
                         Expr::Identifier(Ident {
                             value: key.to_string(),
@@ -1895,7 +1891,6 @@ fn parse_args<'a>(
                         final_vars,
                     )?;
                 } else {
-                    println!("forcing false filter");
                     new_selection = Some(Expr::Value(Value::Boolean(false)));
                 }
                 if selection.is_some() && new_selection.is_some() {
