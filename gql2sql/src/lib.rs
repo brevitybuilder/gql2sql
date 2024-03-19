@@ -1831,10 +1831,13 @@ fn flatten_variables(
 fn should_add_filter<'a>(value: &'a GqlValue, sql_vars: &'a mut IndexMap<Name, JsonValue>) -> bool {
     match &value {
         GqlValue::Null => false,
-        GqlValue::Variable(v) => match sql_vars.get(v) {
+        GqlValue::Variable(v) => {
+            let val = sql_vars.get(v);
+            match val {
             None => false,
             Some(JsonValue::Null) => false,
             _ => true,
+        }
         },
         _ => true,
     }
@@ -1869,14 +1872,18 @@ fn parse_args<'a>(
             if let Some(new_value) = variables.get(name) {
                 value = new_value.clone();
                 if let GqlValue::Null = value {
-                    continue;
+                    if !["id", "email", "A", "B"].contains(&key) {
+                        continue;
+                    }
                 }
             }
         }
         match (key, value) {
             ("id" | "email" | "A" | "B", value) => {
                 let new_selection;
+                println!("found id");
                 if should_add_filter(&value, sql_vars) {
+                    println!("should add filter");
                     new_selection = get_expr(
                         Expr::Identifier(Ident {
                             value: key.to_string(),
@@ -1888,6 +1895,7 @@ fn parse_args<'a>(
                         final_vars,
                     )?;
                 } else {
+                    println!("forcing false filter");
                     new_selection = Some(Expr::Value(Value::Boolean(false)));
                 }
                 if selection.is_some() && new_selection.is_some() {
@@ -3013,6 +3021,27 @@ mod tests {
         )?;
         let (statement, _params, _tags, _is_mutation) =
             gql2sql(gqlast, &None, Some("App".to_owned()))?;
+        assert_snapshot!(statement.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn id_ignore() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"query App($id: String) {
+                app(id: $id) @meta(table: "App") {
+                    id
+                }
+            }
+        "#,
+        )?;
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
+            gqlast,
+            &Some(json!({
+                "id": null
+            })),
+            Some("App".to_owned()),
+        )?;
         assert_snapshot!(statement.to_string());
         Ok(())
     }
