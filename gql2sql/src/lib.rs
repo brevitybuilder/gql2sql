@@ -10,8 +10,8 @@
 mod consts;
 
 use crate::consts::{
-    BASE, DATA_LABEL, JSONB_BUILD_ARRAY, JSONB_BUILD_OBJECT, JSON_AGG, JSON_BUILD_OBJECT, ON,
-    QUOTE_CHAR, ROOT_LABEL, TO_JSON, TO_JSONB,
+    BASE, DATA_LABEL, JSONB_BUILD_ARRAY, JSONB_BUILD_OBJECT, JSON_AGG, ON, QUOTE_CHAR, ROOT_LABEL,
+    TO_JSON, TO_JSONB,
 };
 use anyhow::anyhow;
 use async_graphql_parser::{
@@ -364,7 +364,7 @@ fn get_agg_query(
             expr: Expr::Function(Function {
                 order_by: vec![],
                 name: ObjectName(vec![Ident {
-                    value: JSON_BUILD_OBJECT.to_string(),
+                    value: JSONB_BUILD_OBJECT.to_string(),
                     quote_style: None,
                 }]),
                 args: aggs,
@@ -693,7 +693,7 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
                     order_by: vec![],
                     name: ObjectName(vec![Ident {
-                        value: JSON_BUILD_OBJECT.to_string(),
+                        value: JSONB_BUILD_OBJECT.to_string(),
                         quote_style: None,
                     }]),
                     args: projection,
@@ -712,8 +712,34 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
 fn get_aggregate_projection(
     items: &Vec<Positioned<Selection>>,
     table_name: &str,
+    group_by: Option<Vec<Expr>>,
 ) -> AnyResult<Vec<FunctionArg>> {
-    let mut aggs = vec![];
+    let mut aggs = if group_by.is_some() {
+        vec![
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                Value::SingleQuotedString("value".to_string()),
+            ))),
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                order_by: vec![],
+                name: ObjectName(vec![Ident {
+                    value: JSONB_BUILD_ARRAY.to_string(),
+                    quote_style: None,
+                }]),
+                args: group_by
+                    .unwrap_or_else(|| vec![])
+                    .into_iter()
+                    .map(|g| FunctionArg::Unnamed(FunctionArgExpr::Expr(g)))
+                    .collect(),
+                over: None,
+                distinct: false,
+                special: false,
+                filter: None,
+                null_treatment: None,
+            }))),
+        ]
+    } else {
+        vec![]
+    };
     for selection in items {
         match &selection.node {
             Selection::Field(field) => {
@@ -971,7 +997,7 @@ fn get_join<'a>(
         distinct_order,
     );
     if is_aggregate {
-        let aggs = get_aggregate_projection(selection_items, kind)?;
+        let aggs = get_aggregate_projection(selection_items, kind, group_by.clone())?;
         Ok(Join {
             relation: TableFactor::Derived {
                 lateral: true,
@@ -1980,7 +2006,7 @@ fn parse_args<'a>(
                 let items = list
                     .into_iter()
                     .filter_map(|v| match v {
-                        GqlValue::String(s) => Some(Expr::Value(Value::SingleQuotedString(s))),
+                        GqlValue::String(s) => Some(Expr::Value(Value::DoubleQuotedString(s))),
                         GqlValue::Variable(name) => {
                             get_value(&GqlValue::Variable(name), sql_vars, final_vars).ok()
                         }
@@ -2377,7 +2403,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
                 expr: Expr::Function(Function {
                     order_by: vec![],
                     name: ObjectName(vec![Ident {
-                        value: JSON_BUILD_OBJECT.to_string(),
+                        value: JSONB_BUILD_OBJECT.to_string(),
                         quote_style: None,
                     }]),
                     args: vec![
@@ -2575,8 +2601,11 @@ pub fn gql2sql(
                             distinct_order,
                         );
                         if is_aggregate {
-                            let aggs =
-                                get_aggregate_projection(&field.selection_set.node.items, name)?;
+                            let aggs = get_aggregate_projection(
+                                &field.selection_set.node.items,
+                                name,
+                                group_by.clone(),
+                            )?;
                             statements.push((
                                 key,
                                 Query {
@@ -2680,7 +2709,7 @@ pub fn gql2sql(
                         expr: Expr::Function(Function {
                             order_by: vec![],
                             name: ObjectName(vec![Ident {
-                                value: JSON_BUILD_OBJECT.to_string(),
+                                value: JSONB_BUILD_OBJECT.to_string(),
                                 quote_style: None,
                             }]),
                             args: statements
@@ -3828,7 +3857,6 @@ mod tests {
         assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
-    #[test]
     #[test]
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
