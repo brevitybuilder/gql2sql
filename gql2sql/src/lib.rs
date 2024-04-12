@@ -267,15 +267,14 @@ fn get_filter(
         .ok_or(anyhow!("operator not found"))??;
     let ignore_null = args
         .get("ignoreEmpty")
-        .map(|v| match v {
+        .is_some_and(|v| match v {
             GqlValue::Boolean(b) => *b,
             GqlValue::Variable(v) => match sql_vars.get(v) {
                 Some(JsonValue::Bool(b)) => *b,
                 _ => false,
             },
             _ => false,
-        })
-        .unwrap_or(false);
+        });
 
     let value = args.get("value").unwrap_or_else(|| &GqlValue::Null);
     if operator == "eq" {
@@ -290,7 +289,7 @@ fn get_filter(
         value: field,
         quote_style: Some(QUOTE_CHAR),
     });
-    let primary = if ignore_null && !should_add_filter(&value, sql_vars) {
+    let primary = if ignore_null && !should_add_filter(value, sql_vars) {
         None
     } else {
         get_expr(left, operator.as_str(), value, sql_vars, final_vars)?
@@ -351,6 +350,7 @@ fn get_agg_query(
     from: Vec<TableWithJoins>,
     selection: Option<Expr>,
     alias: &str,
+    group_by: Option<Vec<Expr>>,
 ) -> SetExpr {
     SetExpr::Select(Box::new(Select {
         value_table_mode: None,
@@ -380,7 +380,7 @@ fn get_agg_query(
         from,
         lateral_views: vec![],
         selection,
-        group_by: GroupByExpr::Expressions(vec![]),
+        group_by: GroupByExpr::Expressions(group_by.unwrap_or_else(|| vec![])),
         cluster_by: vec![],
         distribute_by: vec![],
         sort_by: vec![],
@@ -749,7 +749,7 @@ fn get_join<'a>(
     parent: &'a str,
     tags: &'a mut IndexMap<String, IndexSet<Tag>>,
 ) -> AnyResult<Join> {
-    let (selection, distinct, distinct_order, order_by, mut first, after, keys) =
+    let (selection, distinct, distinct_order, order_by, mut first, after, keys, group_by) =
         parse_args(arguments, variables, sql_vars, final_vars)?;
     let (relation, fks, pks, is_single, is_aggregate, is_many, schema_name) =
         get_relation(directives, sql_vars, final_vars)?;
@@ -999,6 +999,7 @@ fn get_join<'a>(
                         }],
                         None,
                         name,
+                        group_by,
                     )),
                     order_by: vec![],
                     limit: None,
@@ -1854,6 +1855,7 @@ fn parse_args<'a>(
     Option<Expr>,
     Option<Offset>,
     Option<IndexSet<Tag>>,
+    Option<Vec<Expr>>,
 )> {
     let mut selection = None;
     let mut order_by = vec![];
@@ -1862,6 +1864,7 @@ fn parse_args<'a>(
     let mut first = None;
     let mut after = None;
     let mut keys = None;
+    let mut group_by = None;
     for argument in arguments {
         let (p_key, p_value) = argument;
         let key = p_key.node.as_str();
@@ -1975,6 +1978,16 @@ fn parse_args<'a>(
                     rows: OffsetRows::None,
                 });
             }
+            ("group_by", GqlValue::List(list)) => {
+              let items = list.into_iter().filter_map(|v| match v {
+                  GqlValue::String(s) => Some(Expr::Value(Value::SingleQuotedString(s))),
+                  GqlValue::Variable(name) => get_value(&GqlValue::Variable(name), sql_vars, final_vars).ok(),
+                  _ => None
+              })
+                .collect::<Vec<_>>();
+                group_by = Some(items);
+
+            }
             _ => {
                 return Err(anyhow!("Invalid argument for: {}", key));
             }
@@ -1988,6 +2001,7 @@ fn parse_args<'a>(
         first,
         after,
         keys,
+        group_by
     ))
 }
 
@@ -2507,7 +2521,7 @@ pub fn gql2sql(
                         let (name, key, is_aggregate, is_single, schema_name) =
                             parse_query_meta(field)?;
 
-                        let (selection, distinct, distinct_order, order_by, mut first, after, keys) =
+                        let (selection, distinct, distinct_order, order_by, mut first, after, keys, group_by) =
                             parse_args(
                                 &field.arguments,
                                 &variables,
@@ -2578,6 +2592,7 @@ pub fn gql2sql(
                                         }],
                                         None,
                                         ROOT_LABEL,
+                                        group_by,
                                     )),
                                     order_by: vec![],
                                     limit: None,
@@ -3781,6 +3796,30 @@ mod tests {
         assert_snapshot!(serde_json::to_string_pretty(&params)?);
         Ok(())
     }
+    #[test]
+    fn group_by_query() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"
+                query BrevityQuery() {
+                    Component_aggregate(filter: { field: "appId", operator: "eq", value: "345810043118026832" }, group_by: ["Name"]) {
+                        count
+                        min {
+                            createdAt
+                        }
+                    }
+                }
+            "#,
+        )?;
+        let (statement, params, _tags, _is_mutation) = gql2sql(
+            gqlast,
+            &Some(json!({ "id_getU7BBKiUwTgwiWMcgUYA4CById": "piWkMrFFXgdQBBkzf84MD" })),
+            None,
+        )?;
+        assert_snapshot!(statement.to_string());
+        assert_snapshot!(serde_json::to_string_pretty(&params)?);
+        Ok(())
+    }
+    #[test]
     #[test]
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
