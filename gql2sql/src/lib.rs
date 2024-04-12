@@ -265,16 +265,14 @@ fn get_filter(
         .get("operator")
         .map(|v| get_string_or_variable(v, sql_vars))
         .ok_or(anyhow!("operator not found"))??;
-    let ignore_null = args
-        .get("ignoreEmpty")
-        .is_some_and(|v| match v {
-            GqlValue::Boolean(b) => *b,
-            GqlValue::Variable(v) => match sql_vars.get(v) {
-                Some(JsonValue::Bool(b)) => *b,
-                _ => false,
-            },
+    let ignore_null = args.get("ignoreEmpty").is_some_and(|v| match v {
+        GqlValue::Boolean(b) => *b,
+        GqlValue::Variable(v) => match sql_vars.get(v) {
+            Some(JsonValue::Bool(b)) => *b,
             _ => false,
-        });
+        },
+        _ => false,
+    });
 
     let value = args.get("value").unwrap_or_else(|| &GqlValue::Null);
     if operator == "eq" {
@@ -1979,14 +1977,17 @@ fn parse_args<'a>(
                 });
             }
             ("group_by", GqlValue::List(list)) => {
-              let items = list.into_iter().filter_map(|v| match v {
-                  GqlValue::String(s) => Some(Expr::Value(Value::SingleQuotedString(s))),
-                  GqlValue::Variable(name) => get_value(&GqlValue::Variable(name), sql_vars, final_vars).ok(),
-                  _ => None
-              })
-                .collect::<Vec<_>>();
+                let items = list
+                    .into_iter()
+                    .filter_map(|v| match v {
+                        GqlValue::String(s) => Some(Expr::Value(Value::SingleQuotedString(s))),
+                        GqlValue::Variable(name) => {
+                            get_value(&GqlValue::Variable(name), sql_vars, final_vars).ok()
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
                 group_by = Some(items);
-
             }
             _ => {
                 return Err(anyhow!("Invalid argument for: {}", key));
@@ -2001,7 +2002,7 @@ fn parse_args<'a>(
         first,
         after,
         keys,
-        group_by
+        group_by,
     ))
 }
 
@@ -2521,13 +2522,21 @@ pub fn gql2sql(
                         let (name, key, is_aggregate, is_single, schema_name) =
                             parse_query_meta(field)?;
 
-                        let (selection, distinct, distinct_order, order_by, mut first, after, keys, group_by) =
-                            parse_args(
-                                &field.arguments,
-                                &variables,
-                                &mut sql_vars,
-                                &mut final_vars,
-                            )?;
+                        let (
+                            selection,
+                            distinct,
+                            distinct_order,
+                            order_by,
+                            mut first,
+                            after,
+                            keys,
+                            group_by,
+                        ) = parse_args(
+                            &field.arguments,
+                            &variables,
+                            &mut sql_vars,
+                            &mut final_vars,
+                        )?;
                         if is_single {
                             first = Some(Expr::Value(Value::Number("1".to_string(), false)));
                         }
