@@ -2253,7 +2253,11 @@ fn parse_args<'a>(
             ("group_by" | "groupBy", GqlValue::List(list)) => {
                 let items = list
                     .into_iter()
-                    .filter_map(|v| get_string_or_variable(&v, &sql_vars).map(|v| (v.clone(), Expr::Value(Value::DoubleQuotedString(v)))).ok())
+                    .filter_map(|v| {
+                        get_string_or_variable(&v, &sql_vars)
+                            .map(|v| (v.clone(), Expr::Value(Value::DoubleQuotedString(v))))
+                            .ok()
+                    })
                     .collect::<Vec<_>>();
                 group_by = Some(items);
             }
