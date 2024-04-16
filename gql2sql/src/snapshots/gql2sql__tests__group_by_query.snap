@@ -2,4 +2,4 @@
 source: gql2sql/src/lib.rs
 expression: statement.to_string()
 ---
-SELECT jsonb_build_object('Component_aggregate', (SELECT jsonb_build_object('value', jsonb_build_array("Name"), 'count', COUNT(*), 'min', jsonb_build_object('createdAt', MIN("createdAt"))) AS "root" FROM (SELECT * FROM "Component" WHERE "appId" = '345810043118026832') AS "base" GROUP BY "Name")) AS "data"
+SELECT jsonb_build_object('Event', (SELECT jsonb_agg("T"."root") FROM (SELECT jsonb_build_object('value', jsonb_build_object('W3htYNGnCaJp4MAp6p6c9_id', to_jsonb((SELECT "base" FROM (SELECT "id", "QJ3MwMUiXqrkPwb88eW8g" AS "name" FROM (SELECT * FROM "AQfNfkgxq4iLcAhkdNAWf" WHERE "id" = "W3htYNGnCaJp4MAp6p6c9_id") AS "AGG") AS "base")), 't473xCb8nhWCxX7Ag7k6q_id', to_jsonb((SELECT "base" FROM (SELECT "id", "tcGyWe4CLwhpTJp4krApd" AS "title" FROM (SELECT * FROM "fTgjFRxYgaj3qHriEdQi3" WHERE "id" = "t473xCb8nhWCxX7Ag7k6q_id") AS "AGG") AS "base"))), 'count', COUNT(*)) AS "root" FROM (SELECT * FROM "LC4PdkWrXEq6PnJNF98RE" WHERE "xVAFwi3LkLnRYqtkV3e9A_id" = 'ge3xraXEcwPTF6hJxLXC7') AS "base" GROUP BY "W3htYNGnCaJp4MAp6p6c9_id", "t473xCb8nhWCxX7Ag7k6q_id") AS "T")) AS "data"

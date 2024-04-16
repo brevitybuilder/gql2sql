@@ -2,4 +2,4 @@
 source: gql2sql/src/lib.rs
 expression: statement.to_string()
 ---
-SELECT jsonb_build_object('app', (SELECT coalesce(json_agg(to_json((SELECT "root" FROM (SELECT "base"."id") AS "root"))), '[]') AS "root" FROM (SELECT * FROM "App" ORDER BY "name" ASC) AS "base")) AS "data"
+SELECT jsonb_build_object('app', (SELECT coalesce(jsonb_agg(to_jsonb((SELECT "root" FROM (SELECT "base"."id") AS "root"))), '[]') AS "root" FROM (SELECT * FROM "App" ORDER BY "name" ASC) AS "base")) AS "data"

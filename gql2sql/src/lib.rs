@@ -10,8 +10,8 @@
 mod consts;
 
 use crate::consts::{
-    BASE, DATA_LABEL, JSONB_BUILD_ARRAY, JSONB_BUILD_OBJECT, JSON_AGG, ON, QUOTE_CHAR, ROOT_LABEL,
-    TO_JSON, TO_JSONB,
+    BASE, DATA_LABEL, JSONB_AGG, JSONB_BUILD_ARRAY, JSONB_BUILD_OBJECT, ON, QUOTE_CHAR, ROOT_LABEL,
+    TO_JSONB,
 };
 use anyhow::anyhow;
 use async_graphql_parser::{
@@ -348,7 +348,7 @@ fn get_agg_query(
     from: Vec<TableWithJoins>,
     selection: Option<Expr>,
     alias: &str,
-    group_by: Option<Vec<Expr>>,
+    group_by: Option<Vec<(String, Expr)>>,
 ) -> SetExpr {
     SetExpr::Select(Box::new(Select {
         value_table_mode: None,
@@ -378,7 +378,13 @@ fn get_agg_query(
         from,
         lateral_views: vec![],
         selection,
-        group_by: GroupByExpr::Expressions(group_by.unwrap_or_else(|| vec![])),
+        group_by: GroupByExpr::Expressions(
+            group_by
+                .unwrap_or_else(|| vec![])
+                .into_iter()
+                .map(|(_, expr)| expr)
+                .collect::<Vec<_>>(),
+        ),
         cluster_by: vec![],
         distribute_by: vec![],
         sort_by: vec![],
@@ -398,7 +404,7 @@ fn get_root_query(
     let mut base = Expr::Function(Function {
         order_by: vec![],
         name: ObjectName(vec![Ident {
-            value: TO_JSON.to_string(),
+            value: TO_JSONB.to_string(),
             quote_style: None,
         }]),
         args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(
@@ -529,7 +535,7 @@ fn get_root_query(
                     over: None,
                     special: false,
                     name: ObjectName(vec![Ident {
-                        value: JSON_AGG.to_string(),
+                        value: JSONB_AGG.to_string(),
                         quote_style: None,
                     }]),
                     args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(base))],
@@ -709,40 +715,273 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
     }
 }
 
-fn get_aggregate_projection(
-    items: &Vec<Positioned<Selection>>,
-    table_name: &str,
-    group_by: Option<Vec<Expr>>,
+fn get_aggregate_projection<'a>(
+    items: &'a Vec<Positioned<Selection>>,
+    table_name: &'a str,
+    group_by: Option<Vec<(String, Expr)>>,
+    variables: &'a IndexMap<Name, GqlValue>,
+    sql_vars: &'a mut IndexMap<Name, JsonValue>,
+    final_vars: &'a mut IndexSet<Name>,
+    tags: &mut IndexMap<String, IndexSet<Tag>>,
 ) -> AnyResult<Vec<FunctionArg>> {
     let mut aggs = if group_by.is_some() {
-        vec![
-            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                Value::SingleQuotedString("value".to_string()),
-            ))),
-            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
-                order_by: vec![],
-                name: ObjectName(vec![Ident {
-                    value: JSONB_BUILD_ARRAY.to_string(),
-                    quote_style: None,
-                }]),
-                args: group_by
-                    .unwrap_or_else(|| vec![])
-                    .into_iter()
-                    .map(|g| FunctionArg::Unnamed(FunctionArgExpr::Expr(g)))
-                    .collect(),
-                over: None,
-                distinct: false,
-                special: false,
-                filter: None,
-                null_treatment: None,
-            }))),
-        ]
+        let value = items.iter().find_map(|s| {
+            if let Selection::Field(f) = &s.node {
+                if f.node.name.node.as_ref() == "value" {
+                    Some(&f.node)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+        if let Some(value) = &value {
+            vec![
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                    Value::SingleQuotedString("value".to_string()),
+                ))),
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                    name: ObjectName(vec![Ident {
+                        value: JSONB_BUILD_OBJECT.to_owned(),
+                        quote_style: None,
+                    }]),
+                    args: value
+                        .selection_set
+                        .node
+                        .items
+                        .iter()
+                        .flat_map(|ss| {
+                            if let Selection::Field(field) = &ss.node {
+                                let name = field.node.name.node.as_ref().to_string();
+
+                                let this_group = group_by
+                                    .clone()
+                                    .unwrap_or_else(|| vec![])
+                                    .into_iter()
+                                    .find(|(key, _expr)| key == &name);
+                                if this_group.is_none() {
+                                    return Ok::<Vec<FunctionArg>, anyhow::Error>(vec![]);
+                                }
+                                let (group_key, _group_expr) = this_group.unwrap();
+                                if field.node.directives.is_empty() {
+                                    Ok(vec![
+                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                            Value::SingleQuotedString(name.clone()),
+                                        ))),
+                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                            Expr::Identifier(Ident {
+                                                value: name,
+                                                quote_style: Some(QUOTE_CHAR),
+                                            }),
+                                        )),
+                                    ])
+                                } else {
+                                    let (
+                                        relation,
+                                        _fks,
+                                        _pks,
+                                        _is_single,
+                                        _is_aggregate,
+                                        _is_many,
+                                        _schema_name,
+                                    ) = get_relation(&field.node.directives, sql_vars, final_vars)?;
+                                    let (projection, joins, _merges) = get_projection(
+                                        &field.node.selection_set.node.items,
+                                        &relation,
+                                        None,
+                                        variables,
+                                        sql_vars,
+                                        final_vars,
+                                        tags,
+                                    )?;
+
+                                    let query = SetExpr::Select(Box::new(Select {
+                                        value_table_mode: None,
+                                        distinct: None,
+                                        named_window: vec![],
+                                        top: None,
+                                        projection,
+                                        into: None,
+                                        from: vec![TableWithJoins {
+                                            relation: TableFactor::Derived {
+                                                lateral: false,
+                                                subquery: Box::new(Query {
+                                                    with: None,
+                                                    body: Box::new(SetExpr::Select(Box::new(
+                                                        Select {
+                                                            distinct: None,
+                                                            top: None,
+                                                            projection: vec![SelectItem::Wildcard(
+                                                                WildcardAdditionalOptions {
+                                                                    opt_exclude: None,
+                                                                    opt_except: None,
+                                                                    opt_rename: None,
+                                                                    opt_replace: None,
+                                                                },
+                                                            )],
+                                                            into: None,
+                                                            from: vec![TableWithJoins {
+                                                                relation: TableFactor::Table {
+                                                                    name: ObjectName(vec![Ident {
+                                                                        value: relation.to_string(),
+                                                                        quote_style: Some(
+                                                                            QUOTE_CHAR,
+                                                                        ),
+                                                                    }]),
+                                                                    alias: None,
+                                                                    args: None,
+                                                                    with_hints: vec![],
+                                                                    version: None,
+                                                                    partitions: vec![],
+                                                                },
+                                                                joins: vec![],
+                                                            }],
+                                                            lateral_views: vec![],
+                                                            selection: Some(Expr::BinaryOp {
+                                                                left: Box::new(Expr::Identifier(
+                                                                    Ident {
+                                                                        value: "id".to_string(),
+                                                                        quote_style: Some(
+                                                                            QUOTE_CHAR,
+                                                                        ),
+                                                                    },
+                                                                )),
+                                                                op: BinaryOperator::Eq,
+                                                                right: Box::new(Expr::Identifier(
+                                                                    Ident {
+                                                                        value: group_key,
+                                                                        quote_style: Some(
+                                                                            QUOTE_CHAR,
+                                                                        ),
+                                                                    },
+                                                                )),
+                                                            }),
+                                                            group_by: GroupByExpr::Expressions(
+                                                                vec![],
+                                                            ),
+                                                            cluster_by: vec![],
+                                                            distribute_by: vec![],
+                                                            sort_by: vec![],
+                                                            having: None,
+                                                            named_window: vec![],
+                                                            qualify: None,
+                                                            value_table_mode: None,
+                                                        },
+                                                    ))),
+                                                    order_by: vec![],
+                                                    limit: None,
+                                                    limit_by: vec![],
+                                                    offset: None,
+                                                    fetch: None,
+                                                    locks: vec![],
+                                                    for_clause: None,
+                                                }),
+                                                alias: Some(TableAlias {
+                                                    name: Ident {
+                                                        value: "AGG".to_string(),
+                                                        quote_style: Some(QUOTE_CHAR),
+                                                    },
+                                                    columns: vec![],
+                                                }),
+                                            },
+                                            joins,
+                                        }],
+                                        lateral_views: vec![],
+                                        selection: None,
+                                        group_by: GroupByExpr::Expressions(vec![]),
+                                        cluster_by: vec![],
+                                        distribute_by: vec![],
+                                        sort_by: vec![],
+                                        having: None,
+                                        qualify: None,
+                                    }));
+
+                                    Ok(vec![
+                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                            Value::SingleQuotedString(name),
+                                        ))),
+                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                            Expr::Function(Function {
+                                                name: ObjectName(vec![Ident {
+                                                    value: TO_JSONB.to_owned(),
+                                                    quote_style: None,
+                                                }]),
+                                                args: vec![FunctionArg::Unnamed(
+                                                    FunctionArgExpr::Expr(Expr::Subquery(
+                                                        Box::new(Query {
+                                                            with: None,
+                                                            body: Box::new(SetExpr::Select(
+                                                                Box::new(Select {
+                                                                    distinct: None,
+                                                                    top: None,
+                                                                    projection: vec![SelectItem::UnnamedExpr(Expr::Value(Value::DoubleQuotedString(BASE.to_string())))],
+                                                                    into: None,
+                                                                    from: vec![TableWithJoins {
+                                                                        relation: TableFactor::Derived { lateral: false, subquery: Box::new(Query {
+                                                                            with: None, body: Box::new(query), order_by: vec![], limit: None, limit_by: vec![], offset: None, fetch: None, locks: vec![], for_clause: None
+                                                                        }), alias: Some(TableAlias { name: Ident { value: BASE.to_string(), quote_style: Some(QUOTE_CHAR) }, columns: vec![] }) },
+                                                                        joins: vec![],
+                                                                    }],
+                                                                    lateral_views: vec![],
+                                                                    selection: None,
+                                                                    group_by: GroupByExpr::Expressions(vec![]),
+                                                                    cluster_by: vec![],
+                                                                    distribute_by: vec![],
+                                                                    sort_by: vec![],
+                                                                    having: None,
+                                                                    named_window: vec![],
+                                                                    qualify: None,
+                                                                    value_table_mode: None,
+                                                                }),
+                                                            )),
+                                                            order_by: vec![],
+                                                            limit: None,
+                                                            limit_by: vec![],
+                                                            offset: None,
+                                                            fetch: None,
+                                                            locks: vec![],
+                                                            for_clause: None,
+                                                        }),
+                                                    )),
+                                                )],
+                                                filter: None,
+                                                null_treatment: None,
+                                                over: None,
+                                                distinct: false,
+                                                special: false,
+                                                order_by: vec![],
+                                            }),
+                                        )),
+                                    ])
+                                }
+                            } else {
+                                Ok(vec![])
+                            }
+                        })
+                        .flatten()
+                        .collect::<Vec<_>>(),
+                    filter: None,
+                    null_treatment: None,
+                    over: None,
+                    distinct: false,
+                    special: false,
+                    order_by: vec![],
+                }))),
+            ]
+        } else {
+            vec![]
+        }
     } else {
         vec![]
     };
+    // let mut aggs = vec![];
     for selection in items {
         match &selection.node {
             Selection::Field(field) => {
+                if field.node.name.node.as_ref() == "value" {
+                    continue;
+                }
                 aggs.extend(get_agg_agg_projection(&field.node, table_name));
             }
             Selection::FragmentSpread(_) => {
@@ -997,7 +1236,15 @@ fn get_join<'a>(
         distinct_order,
     );
     if is_aggregate {
-        let aggs = get_aggregate_projection(selection_items, kind, group_by.clone())?;
+        let aggs = get_aggregate_projection(
+            selection_items,
+            kind,
+            group_by.clone(),
+            variables,
+            sql_vars,
+            final_vars,
+            tags,
+        )?;
         Ok(Join {
             relation: TableFactor::Derived {
                 lateral: true,
@@ -1285,6 +1532,7 @@ fn get_projection<'a>(
                     let hash_str = format!("{:x}", hasher.finish());
                     let kind = field.name.node.as_ref();
                     let name = format!("join.{}.{}", kind, &hash_str[..13]);
+                    println!("key: {}", name);
                     let join = get_join(
                         &field.arguments,
                         &field.directives,
@@ -1879,7 +2127,7 @@ fn parse_args<'a>(
     Option<Expr>,
     Option<Offset>,
     Option<IndexSet<Tag>>,
-    Option<Vec<Expr>>,
+    Option<Vec<(String, Expr)>>,
 )> {
     let mut selection = None;
     let mut order_by = vec![];
@@ -2006,9 +2254,13 @@ fn parse_args<'a>(
                 let items = list
                     .into_iter()
                     .filter_map(|v| match v {
-                        GqlValue::String(s) => Some(Expr::Value(Value::DoubleQuotedString(s))),
+                        GqlValue::String(s) => {
+                            Some((s.clone(), Expr::Value(Value::DoubleQuotedString(s))))
+                        }
                         GqlValue::Variable(name) => {
-                            get_value(&GqlValue::Variable(name), sql_vars, final_vars).ok()
+                            get_value(&GqlValue::Variable(name), sql_vars, final_vars)
+                                .ok()
+                                .map(|v| ("unknown".to_string(), v))
                         }
                         _ => None,
                     })
@@ -2336,7 +2588,7 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
             FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
                 order_by: vec![],
                 name: ObjectName(vec![Ident {
-                    value: JSON_AGG.to_string(),
+                    value: JSONB_AGG.to_string(),
                     quote_style: None,
                 }]),
                 args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
@@ -2605,40 +2857,187 @@ pub fn gql2sql(
                                 &field.selection_set.node.items,
                                 name,
                                 group_by.clone(),
+                                &variables,
+                                &mut sql_vars,
+                                &mut final_vars,
+                                &mut tags,
                             )?;
-                            statements.push((
-                                key,
-                                Query {
-                                    for_clause: None,
-                                    limit_by: vec![],
-                                    with: None,
-                                    body: Box::new(get_agg_query(
-                                        aggs,
-                                        vec![TableWithJoins {
-                                            relation: TableFactor::Derived {
-                                                lateral: false,
-                                                subquery: Box::new(base_query),
-                                                alias: Some(TableAlias {
-                                                    name: Ident {
-                                                        value: BASE.to_string(),
-                                                        quote_style: Some(QUOTE_CHAR),
-                                                    },
-                                                    columns: vec![],
+                            let subquery = Query {
+                                for_clause: None,
+                                limit_by: vec![],
+                                with: None,
+                                body: Box::new(get_agg_query(
+                                    aggs,
+                                    vec![TableWithJoins {
+                                        relation: TableFactor::Derived {
+                                            lateral: false,
+                                            subquery: Box::new(base_query),
+                                            alias: Some(TableAlias {
+                                                name: Ident {
+                                                    value: BASE.to_string(),
+                                                    quote_style: Some(QUOTE_CHAR),
+                                                },
+                                                columns: vec![],
+                                            }),
+                                        },
+                                        joins: vec![],
+                                    }],
+                                    None,
+                                    ROOT_LABEL,
+                                    group_by.clone(),
+                                )),
+                                order_by: vec![],
+                                limit: None,
+                                offset: None,
+                                fetch: None,
+                                locks: vec![],
+                            };
+                            // TODO: Do I need to be deleted?
+                            if group_by.is_some() {
+                                // find-me
+                                statements.push((
+                                    key,
+                                    Expr::Subquery(Box::new(Query {
+                                        with: None,
+                                        body: Box::new(SetExpr::Select(Box::new(Select {
+                                            distinct: None,
+                                            top: None,
+                                            projection: vec![SelectItem::UnnamedExpr(
+                                                Expr::Function(Function {
+                                                    name: ObjectName(vec![Ident {
+                                                        value: JSONB_AGG.to_owned(),
+                                                        quote_style: None,
+                                                    }]),
+                                                    args: vec![FunctionArg::Unnamed(
+                                                        FunctionArgExpr::Expr(
+                                                            Expr::CompoundIdentifier(vec![
+                                                                Ident {
+                                                                    value: "T".to_owned(),
+                                                                    quote_style: Some(QUOTE_CHAR),
+                                                                },
+                                                                Ident {
+                                                                    value: ROOT_LABEL.to_owned(),
+                                                                    quote_style: Some(QUOTE_CHAR),
+                                                                },
+                                                            ]),
+                                                        ),
+                                                    )],
+                                                    filter: None,
+                                                    null_treatment: None,
+                                                    over: None,
+                                                    distinct: false,
+                                                    special: false,
+                                                    order_by: vec![],
                                                 }),
-                                            },
-                                            joins: vec![],
-                                        }],
-                                        None,
-                                        ROOT_LABEL,
-                                        group_by,
-                                    )),
-                                    order_by: vec![],
-                                    limit: None,
-                                    offset: None,
-                                    fetch: None,
-                                    locks: vec![],
-                                },
-                            ));
+                                            )],
+                                            into: None,
+                                            from: vec![TableWithJoins {
+                                                relation: TableFactor::Derived {
+                                                    lateral: false,
+                                                    subquery: Box::new(subquery),
+                                                    alias: Some(TableAlias {
+                                                        name: Ident {
+                                                            value: "T".to_owned(),
+                                                            quote_style: Some(QUOTE_CHAR),
+                                                        },
+                                                        columns: vec![],
+                                                    }),
+                                                },
+                                                joins: vec![],
+                                            }],
+                                            lateral_views: vec![],
+                                            selection: None,
+                                            group_by: GroupByExpr::Expressions(vec![]),
+                                            cluster_by: vec![],
+                                            distribute_by: vec![],
+                                            sort_by: vec![],
+                                            having: None,
+                                            named_window: vec![],
+                                            qualify: None,
+                                            value_table_mode: None,
+                                        }))),
+                                        order_by: vec![],
+                                        limit: None,
+                                        limit_by: vec![],
+                                        offset: None,
+                                        fetch: None,
+                                        locks: vec![],
+                                        for_clause: None,
+                                    })),
+                                ));
+                                // statements.push((
+                                //     key,
+                                //     Expr::Function(Function {
+                                //         order_by: vec![],
+                                //         name: ObjectName(vec![Ident {
+                                //             value: JSONB_AGG.to_string(),
+                                //             quote_style: None,
+                                //         }]),
+                                //         args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
+
+                                //             Expr::Function(Function {
+                                //                 name: ObjectName(vec![Ident {
+                                //                     value: TO_JSONB.to_string(),
+                                //                     quote_style: None,
+                                //                 }]),
+                                //                 args: vec![FunctionArg::Unnamed(
+                                //                     FunctionArgExpr::Expr(Expr::Subquery(
+                                //                         Box::new(Query {
+                                //                             body: Box::new(SetExpr::Select(
+                                //                                 Box::new(Select {
+                                //                                     distinct: None,
+                                //                                     top: None,
+                                //                                     projection: vec![SelectItem::UnnamedExpr(Expr::Identifier(Ident {
+                                //                                         value: ROOT_LABEL.to_string(),
+                                //                                         quote_style: Some(QUOTE_CHAR),
+                                //                                     }))],
+                                //                                     // find me
+                                //                                     into: None,
+                                //                                     from: vec![TableWithJoins {
+                                //                                         relation: TableFactor::Derived { lateral: false, subquery: Box::new(subquery) , alias: Some(TableAlias { name: Ident { value: ROOT_LABEL.to_string(), quote_style: Some(QUOTE_CHAR) }, columns: vec![] }) },
+                                //                                         joins: vec![],
+                                //                                     }],
+                                //                                     lateral_views: vec![],
+                                //                                     selection: None,
+                                //                                     group_by: GroupByExpr::Expressions(vec![]),
+                                //                                     cluster_by: vec![],
+                                //                                     distribute_by: vec![],
+                                //                                     sort_by: vec![],
+                                //                                     having: None,
+                                //                                     named_window: vec![],
+                                //                                     qualify: None,
+                                //                                     value_table_mode: None,
+                                //                                 }),
+                                //                             )),
+                                //                             for_clause: None,
+                                //                             limit_by: vec![],
+                                //                             with: None,
+                                //                             order_by: vec![],
+                                //                             limit: None,
+                                //                             offset: None,
+                                //                             fetch: None,
+                                //                             locks: vec![],
+                                //                         }),
+                                //                     )),
+                                //                 )],
+                                //                 filter: None,
+                                //                 null_treatment: None,
+                                //                 over: None,
+                                //                 distinct: false,
+                                //                 special: false,
+                                //                 order_by: vec![],
+                                //             }),
+                                //         ))],
+                                //         over: None,
+                                //         distinct: false,
+                                //         special: false,
+                                //         filter: None,
+                                //         null_treatment: None,
+                                //     }),
+                                // ));
+                            } else {
+                                statements.push((key, Expr::Subquery(Box::new(subquery))));
+                            }
                         } else {
                             let (projection, joins, merges) = get_projection(
                                 &field.selection_set.node.items,
@@ -2672,7 +3071,7 @@ pub fn gql2sql(
                             );
                             statements.push((
                                 key,
-                                Query {
+                                Expr::Subquery(Box::new(Query {
                                     for_clause: None,
                                     limit_by: vec![],
                                     with: None,
@@ -2682,7 +3081,7 @@ pub fn gql2sql(
                                     offset: None,
                                     fetch: None,
                                     locks: vec![],
-                                },
+                                })),
                             ));
                         };
                     }
@@ -2719,9 +3118,7 @@ pub fn gql2sql(
                                         FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
                                             Value::SingleQuotedString(key.to_string()),
                                         ))),
-                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                            Expr::Subquery(Box::new(query)),
-                                        )),
+                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(query)),
                                     ]
                                 })
                                 .collect(),
@@ -3839,11 +4236,18 @@ mod tests {
         let gqlast = parse_query(
             r#"
                 query BrevityQuery() {
-                    Component_aggregate(filter: { field: "appId", operator: "eq", value: "345810043118026832" }, group_by: ["Name"]) {
-                        count
-                        min {
-                            createdAt
+                    Event(filter: { field: "xVAFwi3LkLnRYqtkV3e9A_id", operator: "eq", value: "ge3xraXEcwPTF6hJxLXC7" }, group_by: ["W3htYNGnCaJp4MAp6p6c9_id", "t473xCb8nhWCxX7Ag7k6q_id"]) @meta(table: "LC4PdkWrXEq6PnJNF98RE", aggregate: true) {
+                        value {
+                          W3htYNGnCaJp4MAp6p6c9_id @relation(table: "AQfNfkgxq4iLcAhkdNAWf", fields: ["id"], references: ["W3htYNGnCaJp4MAp6p6c9_id"], single: true) {
+                            id
+                            name: QJ3MwMUiXqrkPwb88eW8g
+                          }
+                          t473xCb8nhWCxX7Ag7k6q_id @relation(table: "fTgjFRxYgaj3qHriEdQi3", fields: ["id"], references: ["t473xCb8nhWCxX7Ag7k6q_id"], single: true) {
+                            id
+                            title: tcGyWe4CLwhpTJp4krApd
+                          }
                         }
+                        count
                     }
                 }
             "#,
