@@ -2250,20 +2250,10 @@ fn parse_args<'a>(
                     rows: OffsetRows::None,
                 });
             }
-            ("group_by", GqlValue::List(list)) => {
+            ("group_by" | "groupBy", GqlValue::List(list)) => {
                 let items = list
                     .into_iter()
-                    .filter_map(|v| match v {
-                        GqlValue::String(s) => {
-                            Some((s.clone(), Expr::Value(Value::DoubleQuotedString(s))))
-                        }
-                        GqlValue::Variable(name) => {
-                            get_value(&GqlValue::Variable(name), sql_vars, final_vars)
-                                .ok()
-                                .map(|v| ("unknown".to_string(), v))
-                        }
-                        _ => None,
-                    })
+                    .filter_map(|v| get_string_or_variable(&v, &sql_vars).map(|v| (v.clone(), Expr::Value(Value::DoubleQuotedString(v)))).ok())
                     .collect::<Vec<_>>();
                 group_by = Some(items);
             }
@@ -4235,8 +4225,8 @@ mod tests {
     fn group_by_query() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-                query BrevityQuery() {
-                    Event(filter: { field: "xVAFwi3LkLnRYqtkV3e9A_id", operator: "eq", value: "ge3xraXEcwPTF6hJxLXC7" }, group_by: ["W3htYNGnCaJp4MAp6p6c9_id", "t473xCb8nhWCxX7Ag7k6q_id"]) @meta(table: "LC4PdkWrXEq6PnJNF98RE", aggregate: true) {
+                query BrevityQuery($groupBy: [String]) {
+                    Event(filter: { field: "xVAFwi3LkLnRYqtkV3e9A_id", operator: "eq", value: "ge3xraXEcwPTF6hJxLXC7" }, groupBy: $groupBy) @meta(table: "LC4PdkWrXEq6PnJNF98RE", aggregate: true) {
                         value {
                           W3htYNGnCaJp4MAp6p6c9_id @relation(table: "AQfNfkgxq4iLcAhkdNAWf", fields: ["id"], references: ["W3htYNGnCaJp4MAp6p6c9_id"], single: true) {
                             id
@@ -4254,7 +4244,7 @@ mod tests {
         )?;
         let (statement, params, _tags, _is_mutation) = gql2sql(
             gqlast,
-            &Some(json!({ "id_getU7BBKiUwTgwiWMcgUYA4CById": "piWkMrFFXgdQBBkzf84MD" })),
+            &Some(json!({ "groupBy": ["W3htYNGnCaJp4MAp6p6c9_id", "t473xCb8nhWCxX7Ag7k6q_id"] })),
             None,
         )?;
         assert_snapshot!(statement.to_string());
