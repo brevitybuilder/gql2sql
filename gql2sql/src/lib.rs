@@ -1532,7 +1532,6 @@ fn get_projection<'a>(
                     let hash_str = format!("{:x}", hasher.finish());
                     let kind = field.name.node.as_ref();
                     let name = format!("join.{}.{}", kind, &hash_str[..13]);
-                    println!("key: {}", name);
                     let join = get_join(
                         &field.arguments,
                         &field.directives,
@@ -2431,7 +2430,10 @@ fn get_mutation_assignments<'a>(
             _ => return Err(anyhow!("Invalid argument for update at: {}", key)),
         }
     }
-    Ok((selection, assignments))
+    Ok((
+        selection.or_else(|| Some(Expr::Value(Value::Boolean(false)))),
+        assignments,
+    ))
 }
 
 pub fn parse_query_meta(field: &Field) -> AnyResult<(&str, &str, bool, bool, Option<&str>)> {
