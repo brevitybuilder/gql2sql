@@ -29,10 +29,11 @@ use consts::TYPENAME;
 use lazy_static::lazy_static;
 use regex::Regex;
 use sqlparser::ast::{
-    Assignment, BinaryOperator, Cte, DataType, Expr, FromTable, Function, FunctionArg,
-    FunctionArgExpr, GroupByExpr, Ident, Join, JoinConstraint, JoinOperator, ObjectName, Offset,
-    OffsetRows, OrderByExpr, Query, Select, SelectItem, SetExpr, Statement, TableAlias,
-    TableFactor, TableWithJoins, Value, Values, WildcardAdditionalOptions, With,
+    Assignment, BinaryOperator, Cte, DataType, Delete, Expr, FromTable, Function, FunctionArg,
+    FunctionArgExpr, FunctionArgumentList, FunctionArguments, GroupByExpr, Ident, Insert, Join,
+    JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
+    SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
+    WildcardAdditionalOptions, With,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -114,18 +115,20 @@ fn get_value<'a>(
         GqlValue::Enum(e) => Ok(Expr::Value(Value::SingleQuotedString(e.as_ref().into()))),
         GqlValue::Binary(_b) => Err(anyhow!("binary not supported")),
         GqlValue::List(l) => Ok(Expr::Function(Function {
+            within_group: vec![],
             name: ObjectName(vec![Ident::new(JSONB_BUILD_ARRAY)]),
-            args: l
-                .iter()
-                .map(|v| {
-                    let value = get_value(v, sql_vars, final_vars).unwrap();
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(value))
-                })
-                .collect::<Vec<FunctionArg>>(),
+            args: FunctionArguments::List(FunctionArgumentList {
+                duplicate_treatment: None,
+                clauses: vec![],
+                args: l
+                    .iter()
+                    .map(|v| {
+                        let value = get_value(v, sql_vars, final_vars).unwrap();
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(value))
+                    })
+                    .collect::<Vec<FunctionArg>>(),
+            }),
             over: None,
-            distinct: false,
-            special: false,
-            order_by: vec![],
             filter: None,
             null_treatment: None,
         })),
@@ -139,23 +142,25 @@ fn get_value<'a>(
                 }
             }
             Ok(Expr::Function(Function {
+                within_group: vec![],
                 name: ObjectName(vec![Ident::new(JSONB_BUILD_OBJECT)]),
-                args: o
-                    .into_iter()
-                    .flat_map(|(k, v)| {
-                        let value = get_value(v, sql_vars, final_vars).unwrap();
-                        vec![
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                                Value::SingleQuotedString(k.to_string()),
-                            ))),
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(value)),
-                        ]
-                    })
-                    .collect::<Vec<FunctionArg>>(),
+                args: FunctionArguments::List(FunctionArgumentList {
+                    duplicate_treatment: None,
+                    clauses: vec![],
+                    args: o
+                        .into_iter()
+                        .flat_map(|(k, v)| {
+                            let value = get_value(v, sql_vars, final_vars).unwrap();
+                            vec![
+                                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                    Value::SingleQuotedString(k.to_string()),
+                                ))),
+                                FunctionArg::Unnamed(FunctionArgExpr::Expr(value)),
+                            ]
+                        })
+                        .collect::<Vec<FunctionArg>>(),
+                }),
                 over: None,
-                distinct: false,
-                special: false,
-                order_by: vec![],
                 filter: None,
                 null_treatment: None,
             }))
@@ -193,23 +198,51 @@ fn get_expr<'a>(
     sql_vars: &'a mut IndexMap<Name, JsonValue>,
     final_vars: &'a mut IndexSet<Name>,
 ) -> AnyResult<Option<Expr>> {
-    let mut right_value = get_value(value, sql_vars, final_vars)?;
     match operator {
         "like" => Ok(Some(Expr::Like {
             negated: false,
             expr: Box::new(left),
-            pattern: Box::new(right_value),
+            pattern: Box::new(get_value(value, sql_vars, final_vars)?),
             escape_char: None,
         })),
         "ilike" => Ok(Some(Expr::ILike {
             negated: false,
             expr: Box::new(left),
-            pattern: Box::new(right_value),
+            pattern: Box::new(get_value(value, sql_vars, final_vars)?),
             escape_char: None,
         })),
         "null" => Ok(Some(Expr::IsNull(Box::new(left)))),
         "not_null" => Ok(Some(Expr::IsNotNull(Box::new(left)))),
+        "in" => {
+            let list: Result<Vec<_>, _> = if let GqlValue::List(v) = value {
+                v.into_iter()
+                    .map(|v| get_value(v, sql_vars, final_vars))
+                    .collect()
+            } else {
+                Ok(vec![get_value(value, sql_vars, final_vars)?])
+            };
+            Ok(Some(Expr::InList {
+                expr: Box::new(left),
+                list: list?,
+                negated: false,
+            }))
+        }
+        "not_in" => {
+            let list: Result<Vec<_>, _> = if let GqlValue::List(v) = value {
+                v.into_iter()
+                    .map(|v| get_value(v, sql_vars, final_vars))
+                    .collect()
+            } else {
+                Ok(vec![get_value(value, sql_vars, final_vars)?])
+            };
+            Ok(Some(Expr::InList {
+                expr: Box::new(left),
+                list: list?,
+                negated: true,
+            }))
+        }
         _ => {
+            let mut right_value = get_value(value, sql_vars, final_vars)?;
             let op = get_op(operator);
             if let Expr::Value(Value::Null) = right_value {
                 if op == BinaryOperator::Eq {
@@ -351,6 +384,8 @@ fn get_agg_query(
     group_by: Option<Vec<(String, Expr)>>,
 ) -> SetExpr {
     SetExpr::Select(Box::new(Select {
+        window_before_qualify: false,
+        connect_by: None,
         value_table_mode: None,
         distinct: None,
         named_window: vec![],
@@ -362,15 +397,17 @@ fn get_agg_query(
                 quote_style: Some(QUOTE_CHAR),
             },
             expr: Expr::Function(Function {
-                order_by: vec![],
+                within_group: vec![],
                 name: ObjectName(vec![Ident {
                     value: JSONB_BUILD_OBJECT.to_string(),
                     quote_style: None,
                 }]),
-                args: aggs,
+                args: FunctionArguments::List(FunctionArgumentList {
+                    duplicate_treatment: None,
+                    clauses: vec![],
+                    args: aggs,
+                }),
                 over: None,
-                distinct: false,
-                special: false,
                 filter: None,
                 null_treatment: None,
             }),
@@ -402,91 +439,98 @@ fn get_root_query(
     alias: &str,
 ) -> SetExpr {
     let mut base = Expr::Function(Function {
-        order_by: vec![],
+        within_group: vec![],
         name: ObjectName(vec![Ident {
             value: TO_JSONB.to_string(),
             quote_style: None,
         }]),
-        args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(
-            Box::new(Query {
-                for_clause: None,
-                limit_by: vec![],
-                with: None,
-                body: Box::new(SetExpr::Select(Box::new(Select {
-                    value_table_mode: None,
-                    distinct: None,
-                    named_window: vec![],
-                    top: None,
-                    projection: vec![SelectItem::UnnamedExpr(Expr::Identifier(Ident {
-                        value: ROOT_LABEL.to_string(),
-                        quote_style: Some(QUOTE_CHAR),
-                    }))],
-                    into: None,
-                    from: vec![TableWithJoins {
-                        relation: TableFactor::Derived {
-                            lateral: false,
-                            subquery: Box::new(Query {
-                                for_clause: None,
-                                limit_by: vec![],
-                                with: None,
-                                body: Box::new(SetExpr::Select(Box::new(Select {
-                                    value_table_mode: None,
-                                    distinct: None,
-                                    named_window: vec![],
-                                    top: None,
-                                    projection,
-                                    into: None,
-                                    from: vec![],
-                                    lateral_views: vec![],
-                                    selection: None,
-                                    group_by: GroupByExpr::Expressions(vec![]),
-                                    cluster_by: vec![],
-                                    distribute_by: vec![],
-                                    sort_by: vec![],
-                                    having: None,
-                                    qualify: None,
-                                }))),
-                                order_by: vec![],
-                                limit: None,
-                                offset: None,
-                                fetch: None,
-                                locks: vec![],
-                            }),
-                            alias: Some(TableAlias {
-                                name: Ident {
-                                    value: ROOT_LABEL.to_string(),
-                                    quote_style: Some(QUOTE_CHAR),
-                                },
-                                columns: vec![],
-                            }),
-                        },
-                        joins: vec![],
-                    }],
-                    lateral_views: vec![],
-                    selection: None,
-                    group_by: GroupByExpr::Expressions(vec![]),
-                    cluster_by: vec![],
-                    distribute_by: vec![],
-                    sort_by: vec![],
-                    having: None,
-                    qualify: None,
-                }))),
-                order_by: vec![],
-                limit: None,
-                offset: None,
-                fetch: None,
-                locks: vec![],
-            }),
-        )))],
+        args: FunctionArguments::List(FunctionArgumentList {
+            duplicate_treatment: None,
+            clauses: vec![],
+            args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(
+                Box::new(Query {
+                    for_clause: None,
+                    limit_by: vec![],
+                    with: None,
+                    body: Box::new(SetExpr::Select(Box::new(Select {
+                        window_before_qualify: false,
+                        connect_by: None,
+                        value_table_mode: None,
+                        distinct: None,
+                        named_window: vec![],
+                        top: None,
+                        projection: vec![SelectItem::UnnamedExpr(Expr::Identifier(Ident {
+                            value: ROOT_LABEL.to_string(),
+                            quote_style: Some(QUOTE_CHAR),
+                        }))],
+                        into: None,
+                        from: vec![TableWithJoins {
+                            relation: TableFactor::Derived {
+                                lateral: false,
+                                subquery: Box::new(Query {
+                                    for_clause: None,
+                                    limit_by: vec![],
+                                    with: None,
+                                    body: Box::new(SetExpr::Select(Box::new(Select {
+                                        window_before_qualify: false,
+                                        connect_by: None,
+                                        value_table_mode: None,
+                                        distinct: None,
+                                        named_window: vec![],
+                                        top: None,
+                                        projection,
+                                        into: None,
+                                        from: vec![],
+                                        lateral_views: vec![],
+                                        selection: None,
+                                        group_by: GroupByExpr::Expressions(vec![]),
+                                        cluster_by: vec![],
+                                        distribute_by: vec![],
+                                        sort_by: vec![],
+                                        having: None,
+                                        qualify: None,
+                                    }))),
+                                    order_by: vec![],
+                                    limit: None,
+                                    offset: None,
+                                    fetch: None,
+                                    locks: vec![],
+                                }),
+                                alias: Some(TableAlias {
+                                    name: Ident {
+                                        value: ROOT_LABEL.to_string(),
+                                        quote_style: Some(QUOTE_CHAR),
+                                    },
+                                    columns: vec![],
+                                }),
+                            },
+                            joins: vec![],
+                        }],
+                        lateral_views: vec![],
+                        selection: None,
+                        group_by: GroupByExpr::Expressions(vec![]),
+                        cluster_by: vec![],
+                        distribute_by: vec![],
+                        sort_by: vec![],
+                        having: None,
+                        qualify: None,
+                    }))),
+                    order_by: vec![],
+                    limit: None,
+                    offset: None,
+                    fetch: None,
+                    locks: vec![],
+                }),
+            )))],
+        }),
         over: None,
-        distinct: false,
-        special: false,
         filter: None,
         null_treatment: None,
     });
     if !merges.is_empty() {
         base = Expr::BinaryOp {
             left: Box::new(Expr::Cast {
+                kind: sqlparser::ast::CastKind::Cast,
                 format: None,
                 expr: Box::new(base),
                 data_type: DataType::Custom(
@@ -503,15 +547,17 @@ fn get_root_query(
                 conditions: merges.iter().map(|m| m.condition.clone()).collect(),
                 results: merges.iter().map(|m| m.expr.clone()).collect(),
                 else_result: Some(Box::new(Expr::Function(Function {
-                    order_by: vec![],
+                    within_group: vec![],
                     name: ObjectName(vec![Ident {
                         value: "jsonb_build_object".to_string(),
                         quote_style: None,
                     }]),
-                    args: vec![],
+                    args: FunctionArguments::List(FunctionArgumentList {
+                        duplicate_treatment: None,
+                        clauses: vec![],
+                        args: vec![],
+                    }),
                     over: None,
-                    distinct: false,
-                    special: false,
                     filter: None,
                     null_treatment: None,
                 }))),
@@ -520,37 +566,43 @@ fn get_root_query(
     }
     if !is_single {
         base = Expr::Function(Function {
-            order_by: vec![],
+            within_group: vec![],
             over: None,
-            distinct: false,
-            special: false,
             name: ObjectName(vec![Ident {
                 value: "coalesce".to_string(),
                 quote_style: None,
             }]),
-            args: vec![
-                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
-                    order_by: vec![],
-                    distinct: false,
-                    over: None,
-                    special: false,
-                    name: ObjectName(vec![Ident {
-                        value: JSONB_AGG.to_string(),
-                        quote_style: None,
-                    }]),
-                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(base))],
-                    filter: None,
-                    null_treatment: None,
-                }))),
-                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                    Value::SingleQuotedString("[]".to_string()),
-                ))),
-            ],
+            args: FunctionArguments::List(FunctionArgumentList {
+                duplicate_treatment: None,
+                clauses: vec![],
+                args: vec![
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                        within_group: vec![],
+                        over: None,
+                        name: ObjectName(vec![Ident {
+                            value: JSONB_AGG.to_string(),
+                            quote_style: None,
+                        }]),
+                        args: FunctionArguments::List(FunctionArgumentList {
+                            duplicate_treatment: None,
+                            clauses: vec![],
+                            args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(base))],
+                        }),
+                        filter: None,
+                        null_treatment: None,
+                    }))),
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                        Value::SingleQuotedString("[]".to_string()),
+                    ))),
+                ],
+            }),
             filter: None,
             null_treatment: None,
         });
     }
     SetExpr::Select(Box::new(Select {
+        window_before_qualify: false,
+        connect_by: None,
         value_table_mode: None,
         distinct: None,
         named_window: vec![],
@@ -584,17 +636,19 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                     Value::SingleQuotedString(field.name.node.to_string()),
                 ))),
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
-                    order_by: vec![],
+                    within_group: vec![],
                     name: ObjectName(vec![Ident {
                         value: "MIN".to_string(),
                         quote_style: None,
                     }]),
-                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                        Value::SingleQuotedString(format!("{table_name}_Agg")),
-                    )))],
+                    args: FunctionArguments::List(FunctionArgumentList {
+                        duplicate_treatment: None,
+                        clauses: vec![],
+                        args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                            Value::SingleQuotedString(format!("{table_name}_Agg")),
+                        )))],
+                    }),
                     over: None,
-                    distinct: false,
-                    special: false,
                     filter: None,
                     null_treatment: None,
                 }))),
@@ -606,15 +660,17 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                     Value::SingleQuotedString(field.name.node.to_string()),
                 ))),
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
-                    order_by: vec![],
+                    within_group: vec![],
                     name: ObjectName(vec![Ident {
                         value: name.to_uppercase(),
                         quote_style: None,
                     }]),
-                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Wildcard)],
+                    args: FunctionArguments::List(FunctionArgumentList {
+                        duplicate_treatment: None,
+                        clauses: vec![],
+                        args: vec![FunctionArg::Unnamed(FunctionArgExpr::Wildcard)],
+                    }),
                     over: None,
-                    distinct: false,
-                    special: false,
                     filter: None,
                     null_treatment: None,
                 }))),
@@ -638,21 +694,23 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                                     ))),
                                     FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(
                                         Function {
-                                            order_by: vec![],
+                                            within_group: vec![],
                                             name: ObjectName(vec![Ident {
                                                 value: "MIN".to_string(),
                                                 quote_style: None,
                                             }]),
-                                            args: vec![FunctionArg::Unnamed(
-                                                FunctionArgExpr::Expr(Expr::Value(
-                                                    Value::SingleQuotedString(format!(
-                                                        "{table_name}_AggCol"
+                                            args: FunctionArguments::List(FunctionArgumentList {
+                                                duplicate_treatment: None,
+                                                clauses: vec![],
+                                                args: vec![FunctionArg::Unnamed(
+                                                    FunctionArgExpr::Expr(Expr::Value(
+                                                        Value::SingleQuotedString(format!(
+                                                            "{table_name}_AggCol"
+                                                        )),
                                                     )),
-                                                )),
-                                            )],
+                                                )],
+                                            }),
                                             over: None,
-                                            distinct: false,
-                                            special: false,
                                             filter: None,
                                             null_treatment: None,
                                         },
@@ -666,20 +724,24 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                                     ))),
                                     FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(
                                         Function {
-                                            order_by: vec![],
+                                            within_group: vec![],
                                             name: ObjectName(vec![Ident {
                                                 value: name.to_uppercase(),
                                                 quote_style: None,
                                             }]),
-                                            args: vec![FunctionArg::Unnamed(
-                                                FunctionArgExpr::Expr(Expr::Identifier(Ident {
-                                                    value: field_name.to_string(),
-                                                    quote_style: Some(QUOTE_CHAR),
-                                                })),
-                                            )],
+                                            args: FunctionArguments::List(FunctionArgumentList {
+                                                duplicate_treatment: None,
+                                                clauses: vec![],
+                                                args: vec![FunctionArg::Unnamed(
+                                                    FunctionArgExpr::Expr(Expr::Identifier(
+                                                        Ident {
+                                                            value: field_name.to_string(),
+                                                            quote_style: Some(QUOTE_CHAR),
+                                                        },
+                                                    )),
+                                                )],
+                                            }),
                                             over: None,
-                                            distinct: false,
-                                            special: false,
                                             filter: None,
                                             null_treatment: None,
                                         },
@@ -697,15 +759,17 @@ fn get_agg_agg_projection(field: &Field, table_name: &str) -> Vec<FunctionArg> {
                     Value::SingleQuotedString(field.name.node.to_string()),
                 ))),
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
-                    order_by: vec![],
+                    within_group: vec![],
                     name: ObjectName(vec![Ident {
                         value: JSONB_BUILD_OBJECT.to_string(),
                         quote_style: None,
                     }]),
-                    args: projection,
+                    args: FunctionArguments::List(FunctionArgumentList {
+                        duplicate_treatment: None,
+                        clauses: vec![],
+                        args: projection,
+                    }),
                     over: None,
-                    distinct: false,
-                    special: false,
                     filter: None,
                     null_treatment: None,
                 }))),
@@ -742,10 +806,14 @@ fn get_aggregate_projection<'a>(
                     Value::SingleQuotedString("value".to_string()),
                 ))),
                 FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+            within_group: vec![],
                     name: ObjectName(vec![Ident {
                         value: JSONB_BUILD_OBJECT.to_owned(),
                         quote_style: None,
                     }]),
+                    args: FunctionArguments::List(FunctionArgumentList {
+                    duplicate_treatment: None,
+                    clauses: vec![],
                     args: value
                         .selection_set
                         .node
@@ -797,6 +865,8 @@ fn get_aggregate_projection<'a>(
                                     )?;
 
                                     let query = SetExpr::Select(Box::new(Select {
+        window_before_qualify: false,
+        connect_by: None,
                                         value_table_mode: None,
                                         distinct: None,
                                         named_window: vec![],
@@ -810,10 +880,13 @@ fn get_aggregate_projection<'a>(
                                                     with: None,
                                                     body: Box::new(SetExpr::Select(Box::new(
                                                         Select {
+        window_before_qualify: false,
+        connect_by: None,
                                                             distinct: None,
                                                             top: None,
                                                             projection: vec![SelectItem::Wildcard(
                                                                 WildcardAdditionalOptions {
+                                                                    opt_ilike: None,
                                                                     opt_exclude: None,
                                                                     opt_except: None,
                                                                     opt_rename: None,
@@ -903,16 +976,22 @@ fn get_aggregate_projection<'a>(
                                         ))),
                                         FunctionArg::Unnamed(FunctionArgExpr::Expr(
                                             Expr::Function(Function {
+            within_group: vec![],
                                                 name: ObjectName(vec![Ident {
                                                     value: TO_JSONB.to_owned(),
                                                     quote_style: None,
                                                 }]),
-                                                args: vec![FunctionArg::Unnamed(
+                                                args: FunctionArguments::List(FunctionArgumentList {
+                    duplicate_treatment: None,
+                    clauses: vec![],
+                    args: vec![FunctionArg::Unnamed(
                                                     FunctionArgExpr::Expr(Expr::Subquery(
                                                         Box::new(Query {
                                                             with: None,
                                                             body: Box::new(SetExpr::Select(
                                                                 Box::new(Select {
+        window_before_qualify: false,
+        connect_by: None,
                                                                     distinct: None,
                                                                     top: None,
                                                                     projection: vec![SelectItem::UnnamedExpr(Expr::Value(Value::DoubleQuotedString(BASE.to_string())))],
@@ -945,12 +1024,10 @@ fn get_aggregate_projection<'a>(
                                                         }),
                                                     )),
                                                 )],
+                                                }),
                                                 filter: None,
                                                 null_treatment: None,
                                                 over: None,
-                                                distinct: false,
-                                                special: false,
-                                                order_by: vec![],
                                             }),
                                         )),
                                     ])
@@ -961,12 +1038,10 @@ fn get_aggregate_projection<'a>(
                         })
                         .flatten()
                         .collect::<Vec<_>>(),
+                    }),
                     filter: None,
                     null_treatment: None,
                     over: None,
-                    distinct: false,
-                    special: false,
-                    order_by: vec![],
                 }))),
             ]
         } else {
@@ -1604,20 +1679,22 @@ fn get_projection<'a>(
                     );
                     merges.push(Merge {
                         expr: Expr::Function(Function {
-                            order_by: vec![],
+                            within_group: vec![],
                             name: ObjectName(vec![Ident {
                                 value: TO_JSONB.to_string(),
                                 quote_style: None,
                             }]),
-                            args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                                Expr::Identifier(Ident {
-                                    value: name.to_string(),
-                                    quote_style: Some(QUOTE_CHAR),
-                                }),
-                            ))],
+                            args: FunctionArguments::List(FunctionArgumentList {
+                                duplicate_treatment: None,
+                                clauses: vec![],
+                                args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                    Expr::Identifier(Ident {
+                                        value: name.to_string(),
+                                        quote_style: Some(QUOTE_CHAR),
+                                    }),
+                                ))],
+                            }),
                             over: None,
-                            distinct: false,
-                            special: false,
                             filter: None,
                             null_treatment: None,
                         }),
@@ -1804,6 +1881,8 @@ fn get_filter_query(
         limit_by: vec![],
         with: None,
         body: Box::new(SetExpr::Select(Box::new(Select {
+            window_before_qualify: false,
+            connect_by: None,
             value_table_mode: None,
             distinct: if is_distinct {
                 Some(sqlparser::ast::Distinct::Distinct)
@@ -1855,6 +1934,8 @@ fn get_filter_query(
             limit_by: vec![],
             with: None,
             body: Box::new(SetExpr::Select(Box::new(Select {
+                window_before_qualify: false,
+                connect_by: None,
                 value_table_mode: None,
                 distinct: None,
                 named_window: vec![],
@@ -2350,15 +2431,17 @@ fn get_mutation_assignments<'a>(
                 quote_style: Some(QUOTE_CHAR),
             }],
             value: Expr::Function(Function {
-                order_by: vec![],
+                within_group: vec![],
                 name: ObjectName(vec![Ident {
                     value: "now".to_string(),
                     quote_style: None,
                 }]),
-                special: false,
-                args: vec![],
+                args: FunctionArguments::List(FunctionArgumentList {
+                    duplicate_treatment: None,
+                    clauses: vec![],
+                    args: vec![],
+                }),
                 over: None,
-                distinct: false,
                 filter: None,
                 null_treatment: None,
             }),
@@ -2572,37 +2655,41 @@ pub fn parse_mutation_meta(
 #[must_use]
 pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement {
     let mut base = Expr::Function(Function {
-        order_by: vec![],
+        within_group: vec![],
         over: None,
-        distinct: false,
-        special: false,
         name: ObjectName(vec![Ident {
             value: "coalesce".to_string(),
             quote_style: None,
         }]),
-        args: vec![
-            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
-                order_by: vec![],
-                name: ObjectName(vec![Ident {
-                    value: JSONB_AGG.to_string(),
-                    quote_style: None,
-                }]),
-                args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
-                    Expr::Identifier(Ident {
-                        value: "result".to_string(),
-                        quote_style: Some(QUOTE_CHAR),
+        args: FunctionArguments::List(FunctionArgumentList {
+            duplicate_treatment: None,
+            clauses: vec![],
+            args: vec![
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                    within_group: vec![],
+                    name: ObjectName(vec![Ident {
+                        value: JSONB_AGG.to_string(),
+                        quote_style: None,
+                    }]),
+                    args: FunctionArguments::List(FunctionArgumentList {
+                        duplicate_treatment: None,
+                        clauses: vec![],
+                        args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                            Expr::Identifier(Ident {
+                                value: "result".to_string(),
+                                quote_style: Some(QUOTE_CHAR),
+                            }),
+                        ))],
                     }),
-                ))],
-                over: None,
-                distinct: false,
-                special: false,
-                filter: None,
-                null_treatment: None,
-            }))),
-            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                Value::SingleQuotedString("[]".to_string()),
-            ))),
-        ],
+                    over: None,
+                    filter: None,
+                    null_treatment: None,
+                }))),
+                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                    Value::SingleQuotedString("[]".to_string()),
+                ))),
+            ],
+        }),
         filter: None,
         null_treatment: None,
     });
@@ -2642,6 +2729,8 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
             recursive: false,
         }),
         body: Box::new(SetExpr::Select(Box::new(Select {
+            window_before_qualify: false,
+            connect_by: None,
             value_table_mode: None,
             distinct: None,
             named_window: vec![],
@@ -2649,61 +2738,65 @@ pub fn wrap_mutation(key: &str, value: Statement, is_single: bool) -> Statement 
             into: None,
             projection: vec![SelectItem::ExprWithAlias {
                 expr: Expr::Function(Function {
-                    order_by: vec![],
+                    within_group: vec![],
                     name: ObjectName(vec![Ident {
                         value: JSONB_BUILD_OBJECT.to_string(),
                         quote_style: None,
                     }]),
-                    args: vec![
-                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                            Value::SingleQuotedString(key.to_string()),
-                        ))),
-                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(
-                            Query {
-                                for_clause: None,
-                                limit_by: vec![],
-                                with: None,
-                                body: Box::new(SetExpr::Select(Box::new(Select {
-                                    value_table_mode: None,
-                                    distinct: None,
-                                    named_window: vec![],
-                                    top: None,
-                                    projection: vec![SelectItem::UnnamedExpr(base)],
-                                    into: None,
-                                    from: vec![TableWithJoins {
-                                        relation: TableFactor::Table {
-                                            partitions: vec![],
-                                            version: None,
-                                            name: ObjectName(vec![Ident {
-                                                value: "result".to_string(),
-                                                quote_style: Some(QUOTE_CHAR),
-                                            }]),
-                                            alias: None,
-                                            args: None,
-                                            with_hints: vec![],
-                                        },
-                                        joins: vec![],
-                                    }],
-                                    lateral_views: vec![],
-                                    selection: None,
-                                    group_by: GroupByExpr::Expressions(vec![]),
-                                    cluster_by: vec![],
-                                    distribute_by: vec![],
-                                    sort_by: vec![],
-                                    having: None,
-                                    qualify: None,
-                                }))),
-                                order_by: vec![],
-                                limit: None,
-                                offset: None,
-                                fetch: None,
-                                locks: vec![],
-                            },
-                        )))),
-                    ],
+                    args: FunctionArguments::List(FunctionArgumentList {
+                        duplicate_treatment: None,
+                        clauses: vec![],
+                        args: vec![
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                Value::SingleQuotedString(key.to_string()),
+                            ))),
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(
+                                Query {
+                                    for_clause: None,
+                                    limit_by: vec![],
+                                    with: None,
+                                    body: Box::new(SetExpr::Select(Box::new(Select {
+                                        window_before_qualify: false,
+                                        connect_by: None,
+                                        value_table_mode: None,
+                                        distinct: None,
+                                        named_window: vec![],
+                                        top: None,
+                                        projection: vec![SelectItem::UnnamedExpr(base)],
+                                        into: None,
+                                        from: vec![TableWithJoins {
+                                            relation: TableFactor::Table {
+                                                partitions: vec![],
+                                                version: None,
+                                                name: ObjectName(vec![Ident {
+                                                    value: "result".to_string(),
+                                                    quote_style: Some(QUOTE_CHAR),
+                                                }]),
+                                                alias: None,
+                                                args: None,
+                                                with_hints: vec![],
+                                            },
+                                            joins: vec![],
+                                        }],
+                                        lateral_views: vec![],
+                                        selection: None,
+                                        group_by: GroupByExpr::Expressions(vec![]),
+                                        cluster_by: vec![],
+                                        distribute_by: vec![],
+                                        sort_by: vec![],
+                                        having: None,
+                                        qualify: None,
+                                    }))),
+                                    order_by: vec![],
+                                    limit: None,
+                                    offset: None,
+                                    fetch: None,
+                                    locks: vec![],
+                                },
+                            )))),
+                        ],
+                    }),
                     over: None,
-                    distinct: false,
-                    special: false,
                     filter: None,
                     null_treatment: None,
                 }),
@@ -2896,34 +2989,45 @@ pub fn gql2sql(
                                     Expr::Subquery(Box::new(Query {
                                         with: None,
                                         body: Box::new(SetExpr::Select(Box::new(Select {
+                                            window_before_qualify: false,
+                                            connect_by: None,
                                             distinct: None,
                                             top: None,
                                             projection: vec![SelectItem::UnnamedExpr(
                                                 Expr::Function(Function {
+                                                    within_group: vec![],
                                                     name: ObjectName(vec![Ident {
                                                         value: JSONB_AGG.to_owned(),
                                                         quote_style: None,
                                                     }]),
-                                                    args: vec![FunctionArg::Unnamed(
-                                                        FunctionArgExpr::Expr(
-                                                            Expr::CompoundIdentifier(vec![
-                                                                Ident {
-                                                                    value: "T".to_owned(),
-                                                                    quote_style: Some(QUOTE_CHAR),
-                                                                },
-                                                                Ident {
-                                                                    value: ROOT_LABEL.to_owned(),
-                                                                    quote_style: Some(QUOTE_CHAR),
-                                                                },
-                                                            ]),
-                                                        ),
-                                                    )],
+                                                    args: FunctionArguments::List(
+                                                        FunctionArgumentList {
+                                                            duplicate_treatment: None,
+                                                            clauses: vec![],
+                                                            args: vec![FunctionArg::Unnamed(
+                                                                FunctionArgExpr::Expr(
+                                                                    Expr::CompoundIdentifier(vec![
+                                                                        Ident {
+                                                                            value: "T".to_owned(),
+                                                                            quote_style: Some(
+                                                                                QUOTE_CHAR,
+                                                                            ),
+                                                                        },
+                                                                        Ident {
+                                                                            value: ROOT_LABEL
+                                                                                .to_owned(),
+                                                                            quote_style: Some(
+                                                                                QUOTE_CHAR,
+                                                                            ),
+                                                                        },
+                                                                    ]),
+                                                                ),
+                                                            )],
+                                                        },
+                                                    ),
                                                     filter: None,
                                                     null_treatment: None,
                                                     over: None,
-                                                    distinct: false,
-                                                    special: false,
-                                                    order_by: vec![],
                                                 }),
                                             )],
                                             into: None,
@@ -3091,6 +3195,8 @@ pub fn gql2sql(
                 limit_by: vec![],
                 with: None,
                 body: Box::new(SetExpr::Select(Box::new(Select {
+                    window_before_qualify: false,
+                    connect_by: None,
                     value_table_mode: None,
                     distinct: None,
                     named_window: vec![],
@@ -3102,25 +3208,29 @@ pub fn gql2sql(
                             quote_style: Some(QUOTE_CHAR),
                         },
                         expr: Expr::Function(Function {
-                            order_by: vec![],
+                            within_group: vec![],
                             name: ObjectName(vec![Ident {
                                 value: JSONB_BUILD_OBJECT.to_string(),
                                 quote_style: None,
                             }]),
-                            args: statements
-                                .into_iter()
-                                .flat_map(|(key, query)| {
-                                    vec![
-                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                                            Value::SingleQuotedString(key.to_string()),
-                                        ))),
-                                        FunctionArg::Unnamed(FunctionArgExpr::Expr(query)),
-                                    ]
-                                })
-                                .collect(),
+                            args: FunctionArguments::List(FunctionArgumentList {
+                                duplicate_treatment: None,
+                                clauses: vec![],
+                                args: statements
+                                    .into_iter()
+                                    .flat_map(|(key, query)| {
+                                        vec![
+                                            FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                                Expr::Value(Value::SingleQuotedString(
+                                                    key.to_string(),
+                                                )),
+                                            )),
+                                            FunctionArg::Unnamed(FunctionArgExpr::Expr(query)),
+                                        ]
+                                    })
+                                    .collect(),
+                            }),
                             over: None,
-                            distinct: false,
-                            special: false,
                             filter: None,
                             null_treatment: None,
                         }),
@@ -3226,7 +3336,8 @@ pub fn gql2sql(
                             return Ok((
                                 wrap_mutation(
                                     key,
-                                    Statement::Insert {
+                                    Statement::Insert(Insert {
+                                        insert_alias: None,
                                         ignore: false,
                                         priority: None,
                                         replace_into: false,
@@ -3264,14 +3375,11 @@ pub fn gql2sql(
                                                     name.to_owned(),
                                                 )),
                                             },
-                                            SelectItem::Wildcard(WildcardAdditionalOptions {
-                                                opt_exclude: None,
-                                                opt_except: None,
-                                                opt_rename: None,
-                                                opt_replace: None,
-                                            }),
+                                            SelectItem::Wildcard(
+                                                WildcardAdditionalOptions::default(),
+                                            ),
                                         ]),
-                                    },
+                                    }),
                                     is_single,
                                 ),
                                 params,
@@ -3328,12 +3436,9 @@ pub fn gql2sql(
                                                     name.to_owned(),
                                                 )),
                                             },
-                                            SelectItem::Wildcard(WildcardAdditionalOptions {
-                                                opt_exclude: None,
-                                                opt_except: None,
-                                                opt_rename: None,
-                                                opt_replace: None,
-                                            }),
+                                            SelectItem::Wildcard(
+                                                WildcardAdditionalOptions::default(),
+                                            ),
                                         ]),
                                     },
                                     is_single,
@@ -3363,7 +3468,7 @@ pub fn gql2sql(
                             return Ok((
                                 wrap_mutation(
                                     key,
-                                    Statement::Delete {
+                                    Statement::Delete(Delete {
                                         limit: None,
                                         order_by: vec![],
                                         tables: vec![],
@@ -3390,14 +3495,11 @@ pub fn gql2sql(
                                                     name.to_owned(),
                                                 )),
                                             },
-                                            SelectItem::Wildcard(WildcardAdditionalOptions {
-                                                opt_exclude: None,
-                                                opt_except: None,
-                                                opt_rename: None,
-                                                opt_replace: None,
-                                            }),
+                                            SelectItem::Wildcard(
+                                                WildcardAdditionalOptions::default(),
+                                            ),
                                         ]),
-                                    },
+                                    }),
                                     is_single,
                                 ),
                                 params,
