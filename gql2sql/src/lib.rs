@@ -221,9 +221,13 @@ fn get_expr<'a>(
             } else {
                 Ok(vec![get_value(value, sql_vars, final_vars)?])
             };
+            let list = list?;
+            if list.is_empty() {
+                return Ok(Some(Expr::Value(Value::Boolean(false))));
+            }
             Ok(Some(Expr::InList {
                 expr: Box::new(left),
-                list: list?,
+                list,
                 negated: false,
             }))
         }
@@ -235,9 +239,13 @@ fn get_expr<'a>(
             } else {
                 Ok(vec![get_value(value, sql_vars, final_vars)?])
             };
+            let list = list?;
+            if list.is_empty() {
+                return Ok(Some(Expr::Value(Value::Boolean(true))));
+            }
             Ok(Some(Expr::InList {
                 expr: Box::new(left),
-                list: list?,
+                list,
                 negated: true,
             }))
         }
