@@ -2190,11 +2190,13 @@ fn flatten_variables(
 fn should_add_filter<'a>(value: &'a GqlValue, sql_vars: &'a mut IndexMap<Name, JsonValue>) -> bool {
     match &value {
         GqlValue::Null => false,
+        GqlValue::List(v) => !v.is_empty(),
         GqlValue::Variable(v) => {
             let val = sql_vars.get(v);
             match val {
                 None => false,
                 Some(JsonValue::Null) => false,
+                Some(JsonValue::Array(v)) => !v.is_empty(),
                 _ => true,
             }
         }
