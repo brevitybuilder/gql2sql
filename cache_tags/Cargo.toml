@@ -1,6 +1,6 @@
 [package]
 name = "cache_tags"
-version = "3.0.55"
+version = "3.0.56"
 edition = "2021"
 description = "Cache tags for gql2sql"
 license = "MIT OR Apache-2.0"
