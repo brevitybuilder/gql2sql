@@ -29,11 +29,11 @@ use consts::TYPENAME;
 use lazy_static::lazy_static;
 use regex::Regex;
 use sqlparser::ast::{
-    Assignment, BinaryOperator, Cte, DataType, Delete, Expr, FromTable, Function, FunctionArg,
-    FunctionArgExpr, FunctionArgumentList, FunctionArguments, GroupByExpr, Ident, Insert, Join,
-    JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OrderByExpr, Query, Select,
-    SelectItem, SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, Value, Values,
-    WildcardAdditionalOptions, With,
+    Assignment, BinaryOperator, ConflictTarget, Cte, DataType, Delete, DoUpdate, Expr, FromTable,
+    Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, GroupByExpr,
+    Ident, Insert, Join, JoinConstraint, JoinOperator, ObjectName, Offset, OffsetRows, OnConflict,
+    OnConflictAction, OnInsert, OrderByExpr, Query, Select, SelectItem, SetExpr, Statement,
+    TableAlias, TableFactor, TableWithJoins, Value, Values, WildcardAdditionalOptions, With,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -3343,6 +3343,10 @@ pub fn gql2sql(
                                         .collect(),
                                 )
                             };
+                            let is_potential_upsert = columns.contains(&Ident {
+                                value: "id".to_owned(),
+                                quote_style: Some(QUOTE_CHAR),
+                            });
                             return Ok((
                                 wrap_mutation(
                                     key,
@@ -3355,7 +3359,7 @@ pub fn gql2sql(
                                         or: None,
                                         into: true,
                                         table_name,
-                                        columns,
+                                        columns: columns.clone(),
                                         overwrite: false,
                                         source: Some(Box::new(Query {
                                             for_clause: None,
@@ -3374,7 +3378,38 @@ pub fn gql2sql(
                                         partitioned: None,
                                         after_columns: vec![],
                                         table: false,
-                                        on: None,
+                                        on: if is_potential_upsert {
+                                            Some(OnInsert::OnConflict(OnConflict {
+                                                conflict_target: Some(ConflictTarget::Columns(
+                                                    vec![Ident {
+                                                        value: "id".to_owned(),
+                                                        quote_style: Some(QUOTE_CHAR),
+                                                    }],
+                                                )),
+                                                action: OnConflictAction::DoUpdate(DoUpdate {
+                                                    assignments: columns
+                                                        .iter()
+                                                        .filter_map(|c| {
+                                                            if c.value == "id" {
+                                                                return None;
+                                                            }
+                                                            Some(Assignment {
+                                                                id: vec![c.clone()],
+                                                                value: Expr::CompoundIdentifier(
+                                                                    vec![
+                                                                        Ident::new("EXCLUDED"),
+                                                                        c.clone(),
+                                                                    ],
+                                                                ),
+                                                            })
+                                                        })
+                                                        .collect(),
+                                                    selection: None,
+                                                }),
+                                            }))
+                                        } else {
+                                            None
+                                        },
                                         returning: Some(vec![
                                             SelectItem::ExprWithAlias {
                                                 alias: Ident {
@@ -3642,9 +3677,9 @@ mod tests {
             gqlast,
             &Some(json!({
                 "data": [
-                    { "name": "Ronan the Accuser" },
-                    { "name": "Red Skull" },
-                    { "name": "The Vulture" }
+                    { "name": "Ronan the Accuser", "id": "1" },
+                    { "name": "Red Skull", "id": "2" },
+                    { "name": "The Vulture", "id": "3" }
                 ]
             })),
             None,
