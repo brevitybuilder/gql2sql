@@ -208,15 +208,28 @@ switch (platform) {
         }
         break
       case 'arm':
-        localFileExisted = existsSync(join(__dirname, 'gql2sql.linux-arm-gnueabihf.node'))
-        try {
-          if (localFileExisted) {
-            nativeBinding = require('./gql2sql.linux-arm-gnueabihf.node')
-          } else {
-            nativeBinding = require('@brevity-builder/gql2sql-linux-arm-gnueabihf')
+        if (isMusl()) {
+          localFileExisted = existsSync(join(__dirname, 'gql2sql.linux-arm-musleabihf.node'))
+          try {
+            if (localFileExisted) {
+              nativeBinding = require('./gql2sql.linux-arm-musleabihf.node')
+            } else {
+              nativeBinding = require('@brevity-builder/gql2sql-linux-arm-musleabihf')
+            }
+          } catch (e) {
+            loadError = e
           }
-        } catch (e) {
-          loadError = e
+        } else {
+          localFileExisted = existsSync(join(__dirname, 'gql2sql.linux-arm-gnueabihf.node'))
+          try {
+            if (localFileExisted) {
+              nativeBinding = require('./gql2sql.linux-arm-gnueabihf.node')
+            } else {
+              nativeBinding = require('@brevity-builder/gql2sql-linux-arm-gnueabihf')
+            }
+          } catch (e) {
+            loadError = e
+          }
         }
         break
       case 'riscv64':
