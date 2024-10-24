@@ -1,0 +1,5 @@
+---
+source: gql2sql/src/lib.rs
+expression: statement.to_string()
+---
+SELECT jsonb_build_object('insert', jsonb_build_array()) AS "data"
