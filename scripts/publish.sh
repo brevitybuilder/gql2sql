@@ -20,6 +20,6 @@ cd ..
 git add .
 git commit -m "$(< version.txt)"
 git tag -a "v$(< version.txt)" -m "$(< version.txt)"
-git push origin main --tags
+git push origin main --tags -f
 
 rm version.txt
