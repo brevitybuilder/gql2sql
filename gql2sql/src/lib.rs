@@ -3333,6 +3333,85 @@ pub fn gql2sql(
                             //     &mut final_vars,
                             //     &mut tags,
                             // )?;
+                            if rows.is_empty() {
+                                return Ok((
+                                    Statement::Query(Box::new(Query {
+                                        for_clause: None,
+                                        limit_by: vec![],
+                                        with: None,
+                                        body: Box::new(SetExpr::Select(Box::new(Select {
+                                            window_before_qualify: false,
+                                            connect_by: None,
+                                            value_table_mode: None,
+                                            distinct: None,
+                                            named_window: vec![],
+                                            top: None,
+                                            into: None,
+                                            projection: vec![SelectItem::ExprWithAlias {
+                                                expr: Expr::Function(Function {
+                                                    within_group: vec![],
+                                                    name: ObjectName(vec![Ident {
+                                                        value: JSONB_BUILD_OBJECT.to_string(),
+                                                        quote_style: None,
+                                                    }]),
+                                                    args: FunctionArguments::List(
+                                                        FunctionArgumentList {
+                                                            duplicate_treatment: None,
+                                                            clauses: vec![],
+                                                            args: vec![
+                                                                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                                                    Value::SingleQuotedString(key.to_string()),
+                                                                ))),
+                                                                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(Function {
+                                                                    within_group: vec![],
+                                                                    name: ObjectName(vec![Ident {
+                                                                        value: JSONB_BUILD_ARRAY.to_string(),
+                                                                        quote_style: None,
+                                                                    }]),
+                                                                    args: FunctionArguments::List(
+                                                                        FunctionArgumentList {
+                                                                            duplicate_treatment: None,
+                                                                            clauses: vec![],
+                                                                            args: vec![],
+                                                                        },
+                                                                    ),
+                                                                    over: None,
+                                                                    filter: None,
+                                                                    null_treatment: None,
+                                                                }))),
+                        ],
+                                                        },
+                                                    ),
+                                                    over: None,
+                                                    filter: None,
+                                                    null_treatment: None,
+                                                }),
+                                                alias: Ident {
+                                                    value: DATA_LABEL.to_string(),
+                                                    quote_style: Some(QUOTE_CHAR),
+                                                },
+                                            }],
+                                            from: vec![],
+                                            lateral_views: vec![],
+                                            selection: None,
+                                            group_by: GroupByExpr::Expressions(vec![]),
+                                            cluster_by: vec![],
+                                            distribute_by: vec![],
+                                            sort_by: vec![],
+                                            having: None,
+                                            qualify: None,
+                                        }))),
+                                        order_by: vec![],
+                                        limit: None,
+                                        offset: None,
+                                        fetch: None,
+                                        locks: vec![],
+                                    })),
+                                    None,
+                                    None,
+                                    false,
+                                ));
+                            }
                             let params = if final_vars.is_empty() {
                                 None
                             } else {
@@ -3680,6 +3759,25 @@ mod tests {
                     { "name": "Ronan the Accuser", "id": "1" },
                     { "name": "Red Skull", "id": "2" },
                     { "name": "The Vulture", "id": "3" }
+                ]
+            })),
+            None,
+        )?;
+        assert_snapshot!(statement.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn mutation_empty_insert() -> Result<(), anyhow::Error> {
+        let gqlast = parse_query(
+            r#"mutation insertVillains($data: [Villain_insert_input!]!) {
+                insert(data: $data) @meta(table: "Villain", insert: true, schema: "auth") { id name }
+            }"#,
+        )?;
+        let (statement, _params, _tags, _is_mutation) = gql2sql(
+            gqlast,
+            &Some(json!({
+                "data": [
                 ]
             })),
             None,
@@ -4408,14 +4506,294 @@ mod tests {
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-query BrevityQuery($filter_projectId: diaVVW4hgJD8BQ8bDJQwwFilter!) {
-  projectId: getdiaVVW4hgJD8BQ8bDJQwwById(filter: $filter_projectId) @meta(table: "diaVVW4hgJD8BQ8bDJQww", single: true, display: "Get Project by Id") {
-    aqiB3n8XLX9LzAiUkdgGm
-    __typename
+query BrevityDBQuery($playbook_id: String!, $playbook_LFc9r_id_order: [boardcolumn_Order], $playbook_t7raV_id_order: [boardrow_Order], $template_BahPd_id_order: [boardcolumn_Order], $template_xdeiM_id_order: [boardrow_Order], $playbook_playbook_id_order: [playbookstandard_Order], $workflows_Kdda9_id_order: [approvalworkflow_cqaw9_Order]) {
+  playbook: getplaybookById(id: $playbook_id) @meta(table: "playbook", single: true) {
     id
+    name
     created_at
     updated_at
-    P3it4mHEW3fWVmTHfHnkx
+    playbook_id @relation(table: "folderitem", fields: ["playbook_id"], single: true, references: ["id"]) {
+      id
+      created_at
+      updated_at
+    }
+    playbook_LFc9r_id(order: $playbook_LFc9r_id_order) @relation(table: "boardcolumn", fields: ["playbook_LFc9r_id"], references: ["id"]) {
+      id
+      created_at
+      name_CwYar
+      type_Hbagk
+      updated_at
+      order_WUkJE
+      width_xJ846
+      required_4jaR4
+      isdefault_KCmRr
+      temporary_4NyhY
+      column_Xdjyz_id @relation(table: "boardcolumnoptions_mrX6T", fields: ["column_Xdjyz_id"], references: ["id"]) {
+        id
+        created_at
+        name_bFeAf
+        updated_at
+      }
+      template_BahPd_id @relation(table: "template", fields: ["id"], single: true, references: ["template_BahPd_id"]) {
+        id
+        title
+        created_at
+        updated_at
+      }
+    }
+    playbook_t7raV_id(order: $playbook_t7raV_id_order) @relation(table: "boardrow", fields: ["playbook_t7raV_id"], references: ["id"]) {
+      id
+      created_at
+      updated_at
+      boardrow_row_id @relation(table: "boardcell", fields: ["boardrow_row_id"], references: ["id"]) {
+        id
+        created_at
+        updated_at
+        datevalue_hd3CD
+        textvalue_ahacc
+        numberfield_YfkE7
+        selectvalue_q66xK
+        multiselectvalue_bHY6V
+        boardcolumn_column_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["boardcolumn_column_id"]) {
+          id
+          created_at
+          name_CwYar
+          type_Hbagk
+          updated_at
+          order_WUkJE
+          width_xJ846
+          required_4jaR4
+          isdefault_KCmRr
+          temporary_4NyhY
+        }
+        uservalue_faXth_id @relation(table: "User", fields: ["id"], single: true, references: ["uservalue_faXth_id"]) {
+          id
+          email
+          phone
+          created_at
+          given_name
+          updated_at
+          family_name
+          profile_image_url
+        }
+      }
+    }
+    playbook_template_id @relation(table: "template", fields: ["id"], single: true, references: ["playbook_template_id"]) {
+      id
+      title
+      created_at
+      updated_at
+      template_BahPd_id(order: $template_BahPd_id_order) @relation(table: "boardcolumn", fields: ["template_BahPd_id"], references: ["id"]) {
+        id
+        created_at
+        name_CwYar
+        type_Hbagk
+        updated_at
+        order_WUkJE
+        width_xJ846
+        required_4jaR4
+        isdefault_KCmRr
+        temporary_4NyhY
+        column_Xdjyz_id @relation(table: "boardcolumnoptions_mrX6T", fields: ["column_Xdjyz_id"], references: ["id"]) {
+          id
+          created_at
+          name_bFeAf
+          updated_at
+        }
+        template_BahPd_id @relation(table: "template", fields: ["id"], single: true, references: ["template_BahPd_id"]) {
+          id
+          title
+          created_at
+          updated_at
+        }
+      }
+      template_xdeiM_id(order: $template_xdeiM_id_order) @relation(table: "boardrow", fields: ["template_xdeiM_id"], references: ["id"]) {
+        id
+        created_at
+        updated_at
+        boardrow_row_id @relation(table: "boardcell", fields: ["boardrow_row_id"], references: ["id"]) {
+          id
+          created_at
+          updated_at
+          datevalue_hd3CD
+          textvalue_ahacc
+          numberfield_YfkE7
+          selectvalue_q66xK
+          multiselectvalue_bHY6V
+          uservalue_faXth_id @relation(table: "User", fields: ["id"], single: true, references: ["uservalue_faXth_id"]) {
+            id
+            email
+            phone
+            created_at
+            given_name
+            updated_at
+            family_name
+            profile_image_url
+          }
+          boardcolumn_column_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["boardcolumn_column_id"]) {
+            id
+            created_at
+            name_CwYar
+            type_Hbagk
+            updated_at
+            order_WUkJE
+            width_xJ846
+            required_4jaR4
+            isdefault_KCmRr
+            temporary_4NyhY
+          }
+        }
+      }
+      boardrow_template_xdeiM_id_fkey_rA @relation(table: "boardrow", fields: ["template_xdeiM_id"], aggregate: true, references: ["id"]) {
+        count
+      }
+    }
+    descriptioncolumn_nNkVP_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["descriptioncolumn_nNkVP_id"]) {
+      id
+      created_at
+      name_CwYar
+      type_Hbagk
+      updated_at
+      order_WUkJE
+      width_xJ846
+      required_4jaR4
+      isdefault_KCmRr
+      temporary_4NyhY
+    }
+    statuscolumn_fFigH_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["statuscolumn_fFigH_id"]) {
+      id
+      created_at
+      name_CwYar
+      type_Hbagk
+      updated_at
+      order_WUkJE
+      width_xJ846
+      required_4jaR4
+      isdefault_KCmRr
+      temporary_4NyhY
+    }
+    duedatecolumn_Qajep_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["duedatecolumn_Qajep_id"]) {
+      id
+      created_at
+      name_CwYar
+      type_Hbagk
+      updated_at
+      order_WUkJE
+      width_xJ846
+      required_4jaR4
+      isdefault_KCmRr
+      temporary_4NyhY
+    }
+    ownercolumn_3hJaT_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["ownercolumn_3hJaT_id"]) {
+      id
+      created_at
+      name_CwYar
+      type_Hbagk
+      updated_at
+      order_WUkJE
+      width_xJ846
+      required_4jaR4
+      isdefault_KCmRr
+      temporary_4NyhY
+    }
+    playbook_playbook_id(order: $playbook_playbook_id_order) @relation(table: "playbookstandard", fields: ["playbook_playbook_id"], references: ["id"]) {
+      id
+      created_at
+      updated_at
+      row_DBUfb_id @relation(table: "boardrow", fields: ["id"], single: true, references: ["row_DBUfb_id"]) {
+        id
+        created_at
+        updated_at
+        boardrow_row_id @relation(table: "boardcell", fields: ["boardrow_row_id"], references: ["id"]) {
+          id
+          created_at
+          updated_at
+          datevalue_hd3CD
+          textvalue_ahacc
+          numberfield_YfkE7
+          selectvalue_q66xK
+          multiselectvalue_bHY6V
+          boardcolumn_column_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["boardcolumn_column_id"]) {
+            id
+            created_at
+            name_CwYar
+            type_Hbagk
+            updated_at
+            order_WUkJE
+            width_xJ846
+            required_4jaR4
+            isdefault_KCmRr
+            temporary_4NyhY
+          }
+          uservalue_faXth_id @relation(table: "User", fields: ["id"], single: true, references: ["uservalue_faXth_id"]) {
+            id
+            email
+            phone
+            created_at
+            given_name
+            updated_at
+            family_name
+            profile_image_url
+          }
+        }
+        template_xdeiM_id @relation(table: "template", fields: ["id"], single: true, references: ["template_xdeiM_id"]) {
+          id
+          title
+          created_at
+          updated_at
+        }
+      }
+      playbookrow_dYJMf_id @relation(table: "comment_iMAhN", fields: ["playbookrow_dYJMf_id"], references: ["id"]) {
+        id
+        created_at
+        text_6Cwjc
+        updated_at
+      }
+      standard_dDzrf_id @relation(table: "event_UJAaD", fields: ["standard_dDzrf_id"], references: ["id"]) {
+        id
+        created_at
+        type_JQf3R
+        updated_at
+        newvalue_JJw3F
+        oldvalue_6pbq6
+      }
+      playbookrow_wMHyn_id @relation(table: "recurrencerule_EbmPn", fields: ["playbookrow_wMHyn_id"], single: true, references: ["id"]) {
+        id
+        created_at
+        updated_at
+        duedate_LFt6F
+        interval_NW4Dn
+        dayofweek_pEmAH
+        frequency_gYARQ
+        dayofmonth_DEQzT
+        businessdays_y9YbD
+        monthofperiod_zQK9f
+        hasearlyreminder_7YP8E
+        recuronfixeddate_pkcbq
+        earlyreminderdate_BMMKi
+        startofperioddate_VPhm7
+        earlyreminderinterval_fqYdi
+      }
+      playbookrow_VJ6Vw_id @relation(table: "approvalworkflow_cqaw9", fields: ["id"], single: true, references: ["playbookrow_VJ6Vw_id"]) {
+        id
+        created_at
+        name_HKxd6
+        updated_at
+      }
+      standard_caxeN_id @relation(table: "notification_Mxfad", fields: ["standard_caxeN_id"], references: ["id"]) {
+        id
+        created_at
+        read_BiyL4
+        updated_at
+        message_pRPaD
+      }
+    }
+    workflows_Kdda9_id(order: $workflows_Kdda9_id_order) @relation(table: "approvalworkflow_cqaw9", fields: ["workflows_Kdda9_id"], references: ["id"]) {
+      id
+      created_at
+      name_HKxd6
+      updated_at
+    }
   }
 }
             "#,
@@ -4423,12 +4801,50 @@ query BrevityQuery($filter_projectId: diaVVW4hgJD8BQ8bDJQwwFilter!) {
         let (statement, params, tags, _is_mutation) = gql2sql(
             gqlast,
             &Some(json!({
-            "filter_projectId": {
-              "field": "id",
-              "operator": "eq",
-              "value": "9MngMnBffC4z3YhebJMy3"
-            }
-                                    })),
+            "playbook_id": "JrnMctJtYDpKDKxNWJkdF",
+            "playbook_LFc9r_id_order": [
+              {
+                "id": "ASC",
+                "field": "created_at",
+                "direction": "ASC"
+              }
+            ],
+            "playbook_t7raV_id_order": [
+              {
+                "id": "ASC",
+                "field": "created_at",
+                "direction": "ASC"
+              }
+            ],
+            "template_BahPd_id_order": [
+              {
+                "id": "ASC",
+                "field": "created_at",
+                "direction": "ASC"
+              }
+            ],
+            "template_xdeiM_id_order": [
+              {
+                "id": "ASC",
+                "field": "created_at",
+                "direction": "ASC"
+              }
+            ],
+            "playbook_playbook_id_order": [
+              {
+                "id": "ASC",
+                "field": "created_at",
+                "direction": "ASC"
+              }
+            ],
+            "workflows_Kdda9_id_order": [
+              {
+                "id": "ASC",
+                "field": "created_at",
+                "direction": "ASC"
+              }
+            ]
+                                              })),
             None,
         )?;
 
