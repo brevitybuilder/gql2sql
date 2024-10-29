@@ -2165,13 +2165,13 @@ fn get_order<'a>(
     Ok(order_by)
 }
 
-fn get_distinct(distinct: &[GqlValue]) -> Option<Vec<String>> {
+fn get_distinct(
+    distinct: &[GqlValue],
+    variables: &IndexMap<Name, JsonValue>,
+) -> Option<Vec<String>> {
     let values: Vec<String> = distinct
         .iter()
-        .filter_map(|v| match v {
-            GqlValue::String(s) => Some(s.clone()),
-            _ => None,
-        })
+        .filter_map(|v| get_string_or_variable(v, variables).ok())
         .collect();
 
     if values.is_empty() {
@@ -2330,7 +2330,7 @@ fn parse_args<'a>(
             }
             ("distinct", GqlValue::Object(d)) => {
                 if let Some(GqlValue::List(list)) = d.get("on") {
-                    distinct = get_distinct(list);
+                    distinct = get_distinct(list, &sql_vars);
                 }
                 match d.get("order") {
                     Some(GqlValue::Object(order)) => {
@@ -4562,8 +4562,17 @@ mod tests {
     fn nested_playground() -> Result<(), anyhow::Error> {
         let gqlast = parse_query(
             r#"
-query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolumn_Order], $playbook_LFc9r_id_order: [boardcolumn_Order], $playbook_playbook_id_order: [playbookstandard_Order], $boardrow_row_id_filter: boardcell_Filter, $boardrow_row_id_distinct: boardcell_Distinct, $workflows_Kdda9_id_order: [approvalworkflow_cqaw9_Order]) {
-  playbook: getplaybookById(id: $playbook_id) @meta(table: "playbook", single: true) {
+            query BrevityDBQuery(
+  $playbook_id: String!
+  $template_BahPd_id_order: [boardcolumn_Order]
+  $playbook_LFc9r_id_order: [boardcolumn_Order]
+  $playbook_playbook_id_order: [playbookstandard_Order]
+  $boardrow_row_id_filter: boardcell_Filter
+  $boardrow_row_id_distinct: boardcell_Distinct
+  $workflows_Kdda9_id_order: [approvalworkflow_cqaw9_Order]
+) {
+  playbook: getplaybookById(id: $playbook_id)
+    @meta(table: "playbook", single: true) {
     __typename
     id
     name
@@ -4575,7 +4584,13 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
     workspace_VTGmA_id {
       id
     }
-    ownercolumn_3hJaT_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["ownercolumn_3hJaT_id"]) {
+    ownercolumn_3hJaT_id
+      @relation(
+        table: "boardcolumn"
+        fields: ["id"]
+        single: true
+        references: ["ownercolumn_3hJaT_id"]
+      ) {
       __typename
       id
       created_at
@@ -4597,7 +4612,13 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         id
       }
     }
-    playbook_template_id @relation(table: "template", fields: ["id"], single: true, references: ["playbook_template_id"]) {
+    playbook_template_id
+      @relation(
+        table: "template"
+        fields: ["id"]
+        single: true
+        references: ["playbook_template_id"]
+      ) {
       __typename
       id
       title
@@ -4609,7 +4630,12 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
       defaultdescriptioncolumn_kMT8n_id {
         id
       }
-      template_BahPd_id(order: $template_BahPd_id_order) @relation(table: "boardcolumn", fields: ["template_BahPd_id"], references: ["id"]) {
+      template_BahPd_id(order: $template_BahPd_id_order)
+        @relation(
+          table: "boardcolumn"
+          fields: ["template_BahPd_id"]
+          references: ["id"]
+        ) {
         __typename
         id
         created_at
@@ -4630,7 +4656,12 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         template_BahPd_id {
           id
         }
-        column_Xdjyz_id @relation(table: "boardcolumnoptions_mrX6T", fields: ["column_Xdjyz_id"], references: ["id"]) {
+        column_Xdjyz_id
+          @relation(
+            table: "boardcolumnoptions_mrX6T"
+            fields: ["column_Xdjyz_id"]
+            references: ["id"]
+          ) {
           __typename
           id
           created_at
@@ -4642,7 +4673,13 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         }
       }
     }
-    statuscolumn_fFigH_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["statuscolumn_fFigH_id"]) {
+    statuscolumn_fFigH_id
+      @relation(
+        table: "boardcolumn"
+        fields: ["id"]
+        single: true
+        references: ["statuscolumn_fFigH_id"]
+      ) {
       __typename
       id
       created_at
@@ -4664,7 +4701,13 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         id
       }
     }
-    duedatecolumn_Qajep_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["duedatecolumn_Qajep_id"]) {
+    duedatecolumn_Qajep_id
+      @relation(
+        table: "boardcolumn"
+        fields: ["id"]
+        single: true
+        references: ["duedatecolumn_Qajep_id"]
+      ) {
       __typename
       id
       created_at
@@ -4686,7 +4729,13 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         id
       }
     }
-    descriptioncolumn_nNkVP_id @relation(table: "boardcolumn", fields: ["id"], single: true, references: ["descriptioncolumn_nNkVP_id"]) {
+    descriptioncolumn_nNkVP_id
+      @relation(
+        table: "boardcolumn"
+        fields: ["id"]
+        single: true
+        references: ["descriptioncolumn_nNkVP_id"]
+      ) {
       __typename
       id
       created_at
@@ -4704,7 +4753,13 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
       playbook_LFc9r_id {
         id
       }
-      template_BahPd_id @relation(table: "template", fields: ["id"], single: true, references: ["template_BahPd_id"]) {
+      template_BahPd_id
+        @relation(
+          table: "template"
+          fields: ["id"]
+          single: true
+          references: ["template_BahPd_id"]
+        ) {
         __typename
         id
         title
@@ -4718,7 +4773,13 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         }
       }
     }
-    playbook_id @relation(table: "folderitem", fields: ["playbook_id"], single: true, references: ["id"]) {
+    playbook_id
+      @relation(
+        table: "folderitem"
+        fields: ["playbook_id"]
+        single: true
+        references: ["id"]
+      ) {
       __typename
       id
       board_id {
@@ -4739,7 +4800,12 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         id
       }
     }
-    playbook_LFc9r_id(order: $playbook_LFc9r_id_order) @relation(table: "boardcolumn", fields: ["playbook_LFc9r_id"], references: ["id"]) {
+    playbook_LFc9r_id(order: $playbook_LFc9r_id_order)
+      @relation(
+        table: "boardcolumn"
+        fields: ["playbook_LFc9r_id"]
+        references: ["id"]
+      ) {
       __typename
       id
       created_at
@@ -4757,7 +4823,13 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
       playbook_LFc9r_id {
         id
       }
-      template_BahPd_id @relation(table: "template", fields: ["id"], single: true, references: ["template_BahPd_id"]) {
+      template_BahPd_id
+        @relation(
+          table: "template"
+          fields: ["id"]
+          single: true
+          references: ["template_BahPd_id"]
+        ) {
         __typename
         id
         title
@@ -4770,7 +4842,12 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
           id
         }
       }
-      column_Xdjyz_id @relation(table: "boardcolumnoptions_mrX6T", fields: ["column_Xdjyz_id"], references: ["id"]) {
+      column_Xdjyz_id
+        @relation(
+          table: "boardcolumnoptions_mrX6T"
+          fields: ["column_Xdjyz_id"]
+          references: ["id"]
+        ) {
         __typename
         id
         created_at
@@ -4781,12 +4858,23 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         }
       }
     }
-    playbook_playbook_id(order: $playbook_playbook_id_order) @relation(table: "playbookstandard", fields: ["playbook_playbook_id"], references: ["id"]) {
+    playbook_playbook_id(order: $playbook_playbook_id_order)
+      @relation(
+        table: "playbookstandard"
+        fields: ["playbook_playbook_id"]
+        references: ["id"]
+      ) {
       __typename
       id
       created_at
       updated_at
-      row_DBUfb_id @relation(table: "boardrow", fields: ["id"], single: true, references: ["row_DBUfb_id"]) {
+      row_DBUfb_id
+        @relation(
+          table: "boardrow"
+          fields: ["id"]
+          single: true
+          references: ["row_DBUfb_id"]
+        ) {
         __typename
         id
         created_at
@@ -4806,7 +4894,12 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         boardrow_row_id(
           filter: $boardrow_row_id_filter
           distinct: $boardrow_row_id_distinct
-        ) @relation(table: "boardcell", fields: ["boardrow_row_id"], references: ["id"]) {
+        )
+          @relation(
+            table: "boardcell"
+            fields: ["boardrow_row_id"]
+            references: ["id"]
+          ) {
           __typename
           id
           created_at
@@ -4848,7 +4941,13 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
       playbook_playbook_id {
         id
       }
-      playbookrow_VJ6Vw_id @relation(table: "approvalworkflow_cqaw9", fields: ["id"], single: true, references: ["playbookrow_VJ6Vw_id"]) {
+      playbookrow_VJ6Vw_id
+        @relation(
+          table: "approvalworkflow_cqaw9"
+          fields: ["id"]
+          single: true
+          references: ["playbookrow_VJ6Vw_id"]
+        ) {
         __typename
         id
         created_at
@@ -4859,7 +4958,12 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         }
       }
     }
-    workflows_Kdda9_id(order: $workflows_Kdda9_id_order) @relation(table: "approvalworkflow_cqaw9", fields: ["workflows_Kdda9_id"], references: ["id"]) {
+    workflows_Kdda9_id(order: $workflows_Kdda9_id_order)
+      @relation(
+        table: "approvalworkflow_cqaw9"
+        fields: ["workflows_Kdda9_id"]
+        references: ["id"]
+      ) {
       __typename
       id
       created_at
@@ -4875,67 +4979,69 @@ query BrevityDBQuery($playbook_id: String!, $template_BahPd_id_order: [boardcolu
         )?;
         let (statement, params, tags, _is_mutation) = gql2sql(
             gqlast,
-            &Some(json!({
-            "playbook_id": "Pt7wqHj6ymJMg4jimbYRr",
-            "template_BahPd_id_order": [
-              {
-                "id": "ASC",
-                "field": "created_at",
-                "direction": "ASC"
-              }
-            ],
-            "playbook_LFc9r_id_order": [
-              {
-                "id": "ASC",
-                "field": "created_at",
-                "direction": "ASC"
-              }
-            ],
-            "playbook_playbook_id_order": [
-              {
-                "id": "ASC",
-                "field": "created_at",
-                "direction": "ASC"
-              }
-            ],
-            "boardrow_row_id_filter": {
-              "id": "filter_YipDb8gGjkbHRpLfbGBNt",
-              "field": "playbook_EqwVY_id",
-              "value": null,
-              "children": [
-                {
-                  "id": "filter_L6NRaeg8JXzdDFdtFePdc",
-                  "field": "playbook_EqwVY_id",
-                  "value": "Pt7wqHj6ymJMg4jimbYRr",
-                  "children": [],
-                  "operator": "eq",
-                  "logicalOperator": "AND"
-                }
-              ],
-              "operator": "null",
-              "logicalOperator": "OR"
-            },
-            "boardrow_row_id_distinct": {
-              "on": [
-                "boardrow_row_id",
-                "boardcolumn_column_id"
-              ],
-              "order": [
+            &Some(json!(
+            {
+              "playbook_id": "PMxiGmJ4eyndrdp3J3Li6",
+              "template_BahPd_id_order": [
                 {
                   "id": "ASC",
                   "field": "created_at",
-                  "direction": "DESC"
+                  "direction": "ASC"
+                }
+              ],
+              "playbook_LFc9r_id_order": [
+                {
+                  "id": "ASC",
+                  "field": "created_at",
+                  "direction": "ASC"
+                }
+              ],
+              "playbook_playbook_id_order": [
+                {
+                  "id": "ASC",
+                  "field": "created_at",
+                  "direction": "ASC"
+                }
+              ],
+              "boardrow_row_id_filter": {
+                "id": "filter_YipDb8gGjkbHRpLfbGBNt",
+                "field": "playbook_EqwVY_id",
+                "value": null,
+                "children": [
+                  {
+                    "id": "filter_L6NRaeg8JXzdDFdtFePdc",
+                    "field": "playbook_EqwVY_id",
+                    "value": "PMxiGmJ4eyndrdp3J3Li6",
+                    "children": [],
+                    "operator": "eq",
+                    "logicalOperator": "AND"
+                  }
+                ],
+                "operator": "null",
+                "logicalOperator": "OR"
+              },
+              "boardrow_row_id_distinct": {
+                "on": [
+                  "boardrow_row_id",
+                  "boardcolumn_column_id"
+                ],
+                "order": [
+                  {
+                    "id": "ASC",
+                    "field": "created_at",
+                    "direction": "DESC"
+                  }
+                ]
+              },
+              "workflows_Kdda9_id_order": [
+                {
+                  "id": "ASC",
+                  "field": "created_at",
+                  "direction": "ASC"
                 }
               ]
-            },
-            "workflows_Kdda9_id_order": [
-              {
-                "id": "ASC",
-                "field": "created_at",
-                "direction": "ASC"
-              }
-            ]
-            })),
+            }
+                        )),
             None,
         )?;
 
