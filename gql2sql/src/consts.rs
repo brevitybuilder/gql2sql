@@ -8,3 +8,4 @@ pub const TO_JSONB: &str = "to_jsonb";
 pub const JSONB_AGG: &str = "jsonb_agg";
 pub const ON: &str = "ON";
 pub const TYPENAME: &str = "__typename";
+pub const ID: &str = "id";
