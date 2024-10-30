@@ -70,9 +70,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@brevity-builder/gql2sql-linux-x64-gnu@npm:3.0.56":
-  version: 3.0.56
-  resolution: "@brevity-builder/gql2sql-linux-x64-gnu@npm:3.0.56"
+"@brevity-builder/gql2sql-linux-x64-gnu@npm:3.0.63":
+  version: 3.0.63
+  resolution: "@brevity-builder/gql2sql-linux-x64-gnu@npm:3.0.63"
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
@@ -90,7 +90,7 @@ __metadata:
   dependencies:
     "@brevity-builder/gql2sql-darwin-arm64": 3.0.56
     "@brevity-builder/gql2sql-darwin-x64": 3.0.47
-    "@brevity-builder/gql2sql-linux-x64-gnu": 3.0.56
+    "@brevity-builder/gql2sql-linux-x64-gnu": 3.0.63
     "@brevity-builder/gql2sql-linux-x64-musl": 3.0.56
     "@napi-rs/cli": ^2.18.4
     "@swc-node/register": ^1.10.9
