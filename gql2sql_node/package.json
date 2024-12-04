@@ -103,5 +103,5 @@
     "@brevity-builder/gql2sql-linux-x64-gnu": "3.0.56",
     "@brevity-builder/gql2sql-linux-x64-musl": "3.0.56"
   },
-  "packageManager": "yarn@3.8.1"
+  "packageManager": "yarn@3.8.7"
 }
